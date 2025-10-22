@@ -1,0 +1,10 @@
+[project]
+name = "astrbot-plugin-cstatscheck"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "aiohttp>=3.13.1",
+    "asyncio>=4.0.0",
+]

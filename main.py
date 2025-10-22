@@ -1,6 +1,8 @@
 import re
 import json
 import asyncio
+import urllib
+
 import aiohttp
 from astrbot.api.event import filter, AstrMessageEvent, MessageEventResult
 from astrbot.api.star import Context, Star, register
@@ -28,10 +30,10 @@ class Player(Star):
         logger.info(message_chain)
         yield event.plain_result(f"Hello, {user_name}, 你发了 {message_str}!") # 发送一条纯文本消息
 
-	# 根据用户输入的 username 获取 domain
-    async def get_domain(session: aiohttp.ClientSession, username: str):
+    async def get_domain(session: aiohttp.ClientSession, playername: str):
+        """根据用户输入的 playername 获取 domain"""
         # URL encode 用户名
-        username_encoded = urllib.parse.quote(username)
+        playername_encoded = urllib.parse.quote(playername)
 
         headers = {
             "User-Agent": "Mozilla/5.0 (X11; Linux x86_64; rv:146.0) Gecko/20100101 Firefox/146.0",
@@ -39,7 +41,7 @@ class Player(Star):
             "Accept-Language": "zh-CN,zh;q=0.8,zh-TW;q=0.6,zh-HK;q=0.4,en;q=0.2",
             "X-Requested-With": "XMLHttpRequest",
             "Connection": "keep-alive",
-            "Referer": f"https://arena.5eplay.com/search?keywords={username_encoded}",
+            "Referer": f"https://arena.5eplay.com/search?keywords={playername_encoded}",
             "Sec-Fetch-Dest": "empty",
             "Sec-Fetch-Mode": "cors",
             "Sec-Fetch-Site": "same-origin",
@@ -48,7 +50,7 @@ class Player(Star):
         }
 
         url = "https://arena.5eplay.com/api/search/player/1/16"
-        params = {"keywords": username}
+        params = {"keywords": playername}
 
         async with session.get(url, headers=headers, params=params) as resp:
             if resp.status != 200:
@@ -58,9 +60,48 @@ class Player(Star):
 
             users = data.get("data", {}).get("user", {}).get("list", [])
             for u in users:
-                if u.get("username") == username:
+                if u.get("username") == playername:
                     return u.get("domain")
             return None
+
+    async def get_uuid(session: aiohttp.ClientSession, domain: str):
+        """根据 domain 获取 uuid"""
+        post_url = "https://gate.5eplay.com/userinterface/http/v1/userinterface/idTransfer"
+        post_headers = {
+            "User-Agent": "Mozilla/5.0 (X11; Linux x86_64; rv:146.0) Gecko/20100101 Firefox/146.0",
+            "Accept": "*/*",
+            "Accept-Language": "zh-cn",
+            "Content-Type": "application/json",
+            "x-ca-key": "5eplay",
+            "x-ca-signature-method": "HmacSHA256",
+            "x-ca-signature": "CJNeR4KLRxYAB1Ifb/muzBxy4SkMNhLARwfx7ILtHRY=",
+            "x-ca-signature-headers": "Accept-Language,Authorization",
+            "Origin": "https://arena-next.5eplaycdn.com",
+            "Referer": "https://arena-next.5eplaycdn.com/",
+        }
+        post_data = {
+            "trans": {
+                "domain": domain
+            }
+        }
+
+        async with session.post(post_url, json=post_data, headers=post_headers) as resp:
+            resp.raise_for_status()
+            data = await resp.json()
+            uuid = data.get("data", {}).get("uuid")
+            return uuid
+
+    # async def process_one(session, user_url):
+    #     a_id = await fetch_a(session)
+    #     token = await fetch_b(session, a_id)
+    #     uuid = await fetch_c(session, token)
+    #     return await fetch_d(session, uuid)
+
+    # async def main():
+    #     urls = ["https://example.com/user1", "https://example.com/user2"]
+    #     async with aiohttp.ClientSession() as session:
+    #         results = await asyncio.gather(*[process_one(session, u) for u in urls])
+    #         print(results)
 
     async def terminate(self):
         """可选择实现异步的插件销毁方法，当插件被卸载/停用时会调用。"""
