@@ -12,13 +12,18 @@ class Player(Star):
     def __init__(self, context: Context):
         super().__init__(context)
         self.data_dir = StarTools.get_data_dir()
+        self.user_data_file = self.data_dir / "user_data.json"
 
     async def initialize(self):
         """可选择实现异步的插件初始化方法，当实例化该插件类之后会自动调用该方法。"""
-        PLAYER_PATH = self.data_dir
     
         # 确保数据目录存在
         self.data_dir.mkdir(exist_ok=True)
+        # 如果用户数据文件不存在，则创建一个空的 JSON 文件
+        if not self.user_data_file.exists():
+            with open(self.user_data_file, "w", encoding="utf-8") as f:
+                json.dump({}, f)
+
     # 注册指令的装饰器。指令名为 helloworld。注册成功后，发送 `/helloworld` 就会触发这个指令，并回复 `你好, {user_name}!`
     @filter.command("helloworld")
     async def helloworld(self, event: AstrMessageEvent):
@@ -29,20 +34,10 @@ class Player(Star):
         logger.info(message_chain)
         yield event.plain_result(f"Hello, {user_name}, 你发了 {message_str}!") # 发送一条纯文本消息
 
-    @filter.regex(r"^(?:添加用户|用户|添加玩家|玩家)\s*(.+)")
     async def get_domain(session: aiohttp.ClientSession, playername: str, event: AstrMessageEvent):
         """根据用户输入的 playername 获取 domain"""
         # URL encode 用户名
         playername_encoded = urllib.parse.quote(playername)
-        full_text = event.message_str.strip()
-        match = re.match(r"^(?:添加用户|用户|添加玩家|玩家)\s*(.+)", full_text)
-
-        # todo:a function to judge whether the player has been added
-        '''
-        if player_added:
-            yield event.plain_result("玩家已被添加")
-        '''
-
         headers = {
             "User-Agent": "Mozilla/5.0 (X11; Linux x86_64; rv:146.0) Gecko/20100101 Firefox/146.0",
             "Accept": "*/*",
@@ -56,7 +51,6 @@ class Player(Star):
             "TE": "trailers",
             # "Cookie": "ssxmod_itna=...; 5ewin_session_=...",
         }
-
         url = "https://arena.5eplay.com/api/search/player/1/16"
         params = {"keywords": playername}
 
@@ -156,6 +150,44 @@ class Player(Star):
         group_1 = json_data.get("data", {}).get("group_1", [])
         group_2 = json_data.get("data", {}).get("group_2", [])
         #todo: 处理数据，提取战绩信息
+
+    @filter.regex(r"^(?:添加用户|用户|添加玩家|玩家)\s*(.+)")
+    async def add_player_data(self, playername: str):
+        """响应用户添加玩家请求，并进行将玩家数据进行存储"""
+
+        full_text = event.message_str.strip()
+        playername = re.match(r"^(?:添加用户|用户|添加玩家|玩家)\s*(.+)", full_text)
+        username = event.get_sender_name()
+        domain = None
+        uuid = None
+
+        # todo:a function to judge whether the player has been added
+        '''
+        if player_added:
+            yield event.plain_result("玩家已被添加")
+        '''
+        async with aiohttp.ClientSession() as session:
+            domain = await self.get_domain(session, playername)
+            if not domain:
+                return f"未找到玩家 {playername} 的 domain 信息。"
+            uuid = await self.get_uuid(session, domain)
+            if not uuid:
+                return f"未找到玩家 {playername} 的 UUID 信息。"
+        
+        # 存储玩家信息到 JSON 文件
+        player_data = {}
+        if self.user_data_file.exists():
+            with open(self.user_data_file, "r", encoding="utf-8") as f:
+                player_data = json.load(f)
+        player_data[username] = {
+            "name": playername,
+            "domain": domain,
+            "uuid": uuid,
+        }
+        with open(self.user_data_file, "w", encoding="utf-8") as f:
+            json.dump(player_data, f, ensure_ascii=False, indent=4)
+
+
     # async def process_one(session, user_url):
     #     a_id = await fetch_a(session)
     #     token = await fetch_b(session, a_id)
