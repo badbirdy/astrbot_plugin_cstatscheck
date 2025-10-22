@@ -186,19 +186,30 @@ class Player(Star):
         }
         with open(self.user_data_file, "w", encoding="utf-8") as f:
             json.dump(player_data, f, ensure_ascii=False, indent=4)
-
-
-    # async def process_one(session, user_url):
-    #     a_id = await fetch_a(session)
-    #     token = await fetch_b(session, a_id)
-    #     uuid = await fetch_c(session, token)
-    #     return await fetch_d(session, uuid)
-
-    # async def main():
-    #     urls = ["https://example.com/user1", "https://example.com/user2"]
-    #     async with aiohttp.ClientSession() as session:
-    #         results = await asyncio.gather(*[process_one(session, u) for u in urls])
-    #         print(results)
+    
+    @filter.regex(r"^(?:获取战绩|战绩)\s*(.+)")
+    async def fetch_match_stats(self, event: AstrMessageEvent):
+        """响应用户获取战绩请求，读取存储的玩家数据并获取战绩信息"""
+        full_text = event.message_str.strip()
+        username = re.match(r"^(?:获取战绩|战绩)\s*(.+)", full_text)
+        with open(self.user_data_file, "r", encoding="utf-8") as f:
+            player_data = json.load(f)
+        if username not in player_data:
+            yield event.plain_result(f"用户 {username} 未添加任何玩家数据，请先添加玩家。")
+            return
+        player_info = player_data[username]
+        uuid = player_info.get("uuid")
+        async with aiohttp.ClientSession() as session:
+            match_id = await self.get_match_id(session, uuid)
+            if not match_id:
+                yield event.plain_result(f"未找到玩家 {player_info.get('name')} 的最近比赛信息。")
+                return
+            match_stats = await self.get_match_stats(session, match_id)
+            if not match_stats:
+                yield event.plain_result(f"未能获取比赛 {match_id} 的详细数据。")
+                return
+            match_stats_json = await self.process_json(match_stats)
+            yield event.plain_result(f"玩家 {player_info.get('name')} 的最近一场比赛中：{match_stats_json}")
 
     async def terminate(self):
         """可选择实现异步的插件销毁方法，当插件被卸载/停用时会调用。"""
