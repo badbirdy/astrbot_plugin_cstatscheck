@@ -4,7 +4,7 @@ import asyncio
 import urllib.parse
 import aiohttp
 from astrbot.api.event import filter, AstrMessageEvent, MessageEventResult
-from astrbot.api.star import Context, Star, register
+from astrbot.api.star import Context, Star, register, StarTools
 from astrbot.api import logger
 
 @register("cstatcheck", "badbirdy", "一个简单的 cs 战绩查询插件", "1.0.0")
@@ -29,10 +29,19 @@ class Player(Star):
         logger.info(message_chain)
         yield event.plain_result(f"Hello, {user_name}, 你发了 {message_str}!") # 发送一条纯文本消息
 
-    async def get_domain(session: aiohttp.ClientSession, playername: str):
+    @filter.regex(r"^(?:添加用户|用户|添加玩家|玩家)\s*(.+)")
+    async def get_domain(session: aiohttp.ClientSession, playername: str, event: AstrMessageEvent):
         """根据用户输入的 playername 获取 domain"""
         # URL encode 用户名
         playername_encoded = urllib.parse.quote(playername)
+        full_text = event.message_str.strip()
+        match = re.match(r"^(?:添加用户|用户|添加玩家|玩家)\s*(.+)", full_text)
+
+        # todo:a function to judge whether the player has been added
+        '''
+        if player_added:
+            yield event.plain_result("玩家已被添加")
+        '''
 
         headers = {
             "User-Agent": "Mozilla/5.0 (X11; Linux x86_64; rv:146.0) Gecko/20100101 Firefox/146.0",
@@ -139,6 +148,14 @@ class Player(Star):
             resp.raise_for_status()
             data = await resp.json()
             return data.get("data", {})
+
+    async def process_json(self, json_data):
+        """处理比赛数据，提取并格式化战绩信息"""
+        # 这里根据实际的 json 结构提取所需信息
+        basic_info = json_data.get("data", {}).get("main", {})
+        group_1 = json_data.get("data", {}).get("group_1", [])
+        group_2 = json_data.get("data", {}).get("group_2", [])
+        #todo: 处理数据，提取战绩信息
     # async def process_one(session, user_url):
     #     a_id = await fetch_a(session)
     #     token = await fetch_b(session, a_id)
