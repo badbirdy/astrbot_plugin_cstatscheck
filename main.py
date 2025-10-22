@@ -124,7 +124,7 @@ class Player(Star):
 
     async def get_match_stats(self, session: aiohttp.ClientSession, match_id):
         """根据 match_id 获取比赛数据"""
-        get_url = f"https://gate.5eplay.com/crane/http/api/data/match_info?match_id={match_id}"
+        get_url = f"https://gate.5eplay.com/crane/http/api/data/match/{match_id}"
         get_headers = {
             "User-Agent": "Mozilla/5.0 (X11; Linux x86_64; rv:146.0) Gecko/20100101 Firefox/146.0",
             "Accept": "*/*",
@@ -145,13 +145,16 @@ class Player(Star):
             data = await resp.json()
             return data.get("data", {})
 
-    async def process_json(self, json_data):
+    async def process_json(self, json_data, match_id):
         """处理比赛数据，提取并格式化战绩信息"""
+        # 先存一份完整 json 数据留作备份
+        with open(self.data_dir / f"match_{match_id}.json", "w", encoding="utf-8") as f:
+            json.dump(json_data, f, ensure_ascii=False, indent=4)
         # 这里根据实际的 json 结构提取所需信息
-        basic_info = json_data.get("data", {}).get("main", {})
+        basic_info = json_data.get("main", {})
         match_map = basic_info["map_desc"]
-        group_1 = json_data.get("data", {}).get("group_1", [])
-        group_2 = json_data.get("data", {}).get("group_2", [])
+        group_1 = json_data.get("group_1", [])
+        group_2 = json_data.get("group_2", [])
         players = group_1 + group_2
         player_data_list = []
         for player in players:
@@ -189,10 +192,14 @@ class Player(Star):
             if not self.domain:
                 yield event.plain_result(f"获取玩家 {self.playername} 的 domain 信息失败，请稍候重试")
                 return
+            else:
+                yield event.plain_result(f"成功获取到 domain: {self.domain}")
             self.uuid = await self.get_uuid(session)
-            if not uuid:
+            if not self.uuid:
                 yield event.plain_result(f"获取玩家 {self.playername} 的 uuid 信息失败，请稍后重试")
                 return
+            else:
+                yield event.plain_result(f"成功获取到 uuid: {self.uuid}")
 
         # 存储玩家信息到 JSON 文件
         player_data = {}
@@ -226,11 +233,15 @@ class Player(Star):
             if not match_id:
                 yield event.plain_result(f"未找到玩家 {player_info.get('name')} 的最近比赛信息。")
                 return
+            else:
+                yield event.plain_result(f"玩家 {player_info.get('name')} 最近的一场比赛 ID: {match_id}")
             match_stats = await self.get_match_stats(session, match_id)
             if not match_stats:
                 yield event.plain_result(f"未能获取比赛 {match_id} 的详细数据。")
                 return
-            match_stats_json = await self.process_json(match_stats)
+            else:
+                yield event.plain_result(f"成功获取比赛 {match_id} 的详细数据。")
+            match_stats_json = await self.process_json(match_stats, match_id)
             yield event.plain_result(f"玩家 {player_info.get('name')} 的最近一场比赛中：{match_stats_json}")
 
     async def user_is_added(self, username: str, playername: str) -> bool:
