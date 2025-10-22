@@ -13,10 +13,13 @@ class Player(Star):
         super().__init__(context)
         self.data_dir = StarTools.get_data_dir()
         self.user_data_file = self.data_dir / "user_data.json"
+        self.username: str = "" #  发送指令的用户名称
+        self.playername: str = "" # user 对应的玩家名称
+        self.domain: str = "" # 仅仅用于查询 playername 对应的 uuid
+        self.uuid: str = "" # 用于查询战绩
 
     async def initialize(self):
         """可选择实现异步的插件初始化方法，当实例化该插件类之后会自动调用该方法。"""
-    
         # 确保数据目录存在
         self.data_dir.mkdir(exist_ok=True)
         # 如果用户数据文件不存在，则创建一个空的 JSON 文件
@@ -34,7 +37,7 @@ class Player(Star):
         logger.info(message_chain)
         yield event.plain_result(f"Hello, {user_name}, 你发了 {message_str}!") # 发送一条纯文本消息
 
-    async def get_domain(session: aiohttp.ClientSession, playername: str, event: AstrMessageEvent):
+    async def get_domain(session: aiohttp.ClientSession, playername: str):
         """根据用户输入的 playername 获取 domain"""
         # URL encode 用户名
         playername_encoded = urllib.parse.quote(playername)
@@ -147,42 +150,60 @@ class Player(Star):
         """处理比赛数据，提取并格式化战绩信息"""
         # 这里根据实际的 json 结构提取所需信息
         basic_info = json_data.get("data", {}).get("main", {})
+        map = basic_info["map_desc"]
         group_1 = json_data.get("data", {}).get("group_1", [])
         group_2 = json_data.get("data", {}).get("group_2", [])
-        #todo: 处理数据，提取战绩信息
+        players = group_1 + group_2
+        player_data_list = []
+        for player in players:
+            adr = player.get("fight", {}).get("adr")
+            rating = player.get("fight", {}).get("rating2")
+            change_elo = player.get("sts", {}).get("change_elo")
+            playername = player.get("user_info", {}).get("username")
+            # 创建字典数组存储信息
+            player_data_list.append({
+                "playername": playername,
+                "adr": adr,
+                "rating": rating,
+                "change_elo": change_elo
+            })
+        # return map, player_data_list
+        # 先测试性地简单返回一个 map
+        return f"地图: {map}"
 
     @filter.regex(r"^(?:添加用户|用户|添加玩家|玩家)\s*(.+)")
-    async def add_player_data(self, playername: str):
+    async def add_player_data(self, event: AstrMessageEvent):
         """响应用户添加玩家请求，并进行将玩家数据进行存储"""
 
         full_text = event.message_str.strip()
-        playername = re.match(r"^(?:添加用户|用户|添加玩家|玩家)\s*(.+)", full_text)
-        username = event.get_sender_name()
+        match = re.match(r"^(?:添加用户|用户|添加玩家|玩家)\s*(.+)", full_text)
+        self.playername = match.groups()[0].strip()
+        self.username = event.get_sender_name()
         domain = None
         uuid = None
 
-        # todo:a function to judge whether the player has been added
-        '''
-        if player_added:
-            yield event.plain_result("玩家已被添加")
-        '''
+        if await self.user_is_added(self.username, self.playername):
+            yield event.plain_result(f"用户 {self.username} 已添加玩家 {self.playername} 的数据。")
+            return
         async with aiohttp.ClientSession() as session:
-            domain = await self.get_domain(session, playername)
-            if not domain:
-                return f"未找到玩家 {playername} 的 domain 信息。"
-            uuid = await self.get_uuid(session, domain)
+            self.domain = await self.get_domain(self.playername)
+            if not self.domain:
+                yield event.plain_result(f"获取玩家 {self.playername} 的 domain 信息失败，请稍候重试")
+                return
+            self.uuid = await self.get_uuid(self.domain)
             if not uuid:
-                return f"未找到玩家 {playername} 的 UUID 信息。"
-        
+                yield event.plain_result(f"获取玩家 {self.playername} 的 uuid 信息失败，请稍后重试")
+                return
+
         # 存储玩家信息到 JSON 文件
         player_data = {}
         if self.user_data_file.exists():
             with open(self.user_data_file, "r", encoding="utf-8") as f:
                 player_data = json.load(f)
-        player_data[username] = {
-            "name": playername,
-            "domain": domain,
-            "uuid": uuid,
+        player_data[self.username] = {
+            "name": self.playername,
+            "domain": self.domain,
+            "uuid": self.uuid,
         }
         with open(self.user_data_file, "w", encoding="utf-8") as f:
             json.dump(player_data, f, ensure_ascii=False, indent=4)
@@ -191,16 +212,18 @@ class Player(Star):
     async def fetch_match_stats(self, event: AstrMessageEvent):
         """响应用户获取战绩请求，读取存储的玩家数据并获取战绩信息"""
         full_text = event.message_str.strip()
-        username = re.match(r"^(?:获取战绩|战绩)\s*(.+)", full_text)
+        match = re.match(r"^(?:获取战绩|战绩)\s*(.+)", full_text)
+        self.username = match.groups()[0].strip()
         with open(self.user_data_file, "r", encoding="utf-8") as f:
             player_data = json.load(f)
-        if username not in player_data:
-            yield event.plain_result(f"用户 {username} 未添加任何玩家数据，请先添加玩家。")
+        if self.username not in player_data:
+            yield event.plain_result(f"用户 {self.username} 未添加玩家数据，请先添加玩家。")
             return
-        player_info = player_data[username]
-        uuid = player_info.get("uuid")
+        player_info = player_data[self.username]
+        # 更新 self.uuid
+        self.uuid = player_info.get("uuid")
         async with aiohttp.ClientSession() as session:
-            match_id = await self.get_match_id(session, uuid)
+            match_id = await self.get_match_id(session, self.uuid)
             if not match_id:
                 yield event.plain_result(f"未找到玩家 {player_info.get('name')} 的最近比赛信息。")
                 return
@@ -211,5 +234,15 @@ class Player(Star):
             match_stats_json = await self.process_json(match_stats)
             yield event.plain_result(f"玩家 {player_info.get('name')} 的最近一场比赛中：{match_stats_json}")
 
+    async def user_is_added(self, username: str, playername: str) -> bool:
+        """检查用户是否已添加玩家数据"""
+        if self.user_data_file.exists():
+            with open(self.user_data_file, "r", encoding="utf-8") as f:
+                player_data = json.load(f)
+            return username in player_data and player_data[username]["name"] == playername
+        return False
+
     async def terminate(self):
         """可选择实现异步的插件销毁方法，当插件被卸载/停用时会调用。"""
+
+    #todo: 错误信息处理
