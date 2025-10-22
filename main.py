@@ -2,7 +2,6 @@ import re
 import json
 import asyncio
 import urllib
-
 import aiohttp
 from astrbot.api.event import filter, AstrMessageEvent, MessageEventResult
 from astrbot.api.star import Context, Star, register
@@ -91,6 +90,55 @@ class Player(Star):
             uuid = data.get("data", {}).get("uuid")
             return uuid
 
+    async def get_match_id(self, session: aiohttp.ClientSession,uuid):
+        """根据 uuid 获取最近一把比赛的 match_id"""
+        get_url = f"https://gate.5eplay.com/crane/http/api/data/player_match?uuid={uuid}"
+        real_url = "https://gate.5eplay.com/crane/http/api/data/player_match?uuid=abee0c4d-aa77-11ef-848e-506b4bfa3106"
+        get_headers = {
+            "User-Agent": "Mozilla/5.0 (X11; Linux x86_64; rv:146.0) Gecko/20100101 Firefox/146.0",
+            "Accept": "*/*",
+            "Accept-Language": "zh-cn",
+            "Authorization": "",
+            "x-ca-key": "5eplay",
+            "Host": "gate.5eplay.com",
+            "x-ca-signature-method": "HmacSHA256",
+            "x-ca-signature": "8rrdm62A4ISHZDa9tBxXdMyVqA6xdUy5idiO4+4NTIc=",
+            "x-ca-signature-headers": "Accept-Language,Authorization",
+            "Origin": "https://arena-next.5eplaycdn.com",
+            "Referer": "https://arena-next.5eplaycdn.com/",
+            "TE": "trailers",
+        }
+
+        async with session.get(get_url, headers=get_headers) as resp:
+            resp.raise_for_status()
+            data = await resp.json()
+            match_list = data.get("data", {}).get("match_data", [])
+            if match_list:
+                return match_list[0].get("match_id")
+            return None
+
+    async def get_match_stats(self, session: aiohttp.ClientSession, match_id):
+        """根据 match_id 获取比赛数据"""
+        get_url = f"https://gate.5eplay.com/crane/http/api/data/match_info?match_id={match_id}"
+        get_headers = {
+            "User-Agent": "Mozilla/5.0 (X11; Linux x86_64; rv:146.0) Gecko/20100101 Firefox/146.0",
+            "Accept": "*/*",
+            "Accept-Language": "zh-cn",
+            "Authorization": "",
+            "Content-Type": "application/json",
+            "Sec-Fetch-Dest": "empty",
+            "Sec-Fetch-Mode": "cors",
+            "Sec-Fetch-Site": "cross-site",
+            "Priority": "u=4",
+            "Origin": "https://arena-next.5eplaycdn.com",
+            "Referer": "https://arena-next.5eplaycdn.com/",
+            "TE": "trailers",
+        }
+
+        async with session.get(get_url, headers=get_headers) as resp:
+            resp.raise_for_status()
+            data = await resp.json()
+            return data.get("data", {})
     # async def process_one(session, user_url):
     #     a_id = await fetch_a(session)
     #     token = await fetch_b(session, a_id)
