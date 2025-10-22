@@ -27,20 +27,20 @@ class Player(Star):
             with open(self.user_data_file, "w", encoding="utf-8") as f:
                 json.dump({}, f)
 
-    # 注册指令的装饰器。指令名为 helloworld。注册成功后，发送 `/helloworld` 就会触发这个指令，并回复 `你好, {user_name}!`
-    @filter.command("helloworld")
-    async def helloworld(self, event: AstrMessageEvent):
-        """这是一个 hello world 指令""" # 这是 handler 的描述，将会被解析方便用户了解插件内容。建议填写。
-        user_name = event.get_sender_name()
-        message_str = event.message_str # 用户发的纯文本消息字符串
-        message_chain = event.get_messages() # 用户所发的消息的消息链 # from astrbot.api.message_components import *
-        logger.info(message_chain)
-        yield event.plain_result(f"Hello, {user_name}, 你发了 {message_str}!") # 发送一条纯文本消息
+    # # 注册指令的装饰器。指令名为 helloworld。注册成功后，发送 `/helloworld` 就会触发这个指令，并回复 `你好, {user_name}!`
+    # @filter.command("helloworld")
+    # async def helloworld(self, event: AstrMessageEvent):
+    #     """这是一个 hello world 指令""" # 这是 handler 的描述，将会被解析方便用户了解插件内容。建议填写。
+    #     user_name = event.get_sender_name()
+    #     message_str = event.message_str # 用户发的纯文本消息字符串
+    #     message_chain = event.get_messages() # 用户所发的消息的消息链 # from astrbot.api.message_components import *
+    #     logger.info(message_chain)
+    #     yield event.plain_result(f"Hello, {user_name}, 你发了 {message_str}!") # 发送一条纯文本消息
 
-    async def get_domain(session: aiohttp.ClientSession, playername: str):
+    async def get_domain(self, session: aiohttp.ClientSession):
         """根据用户输入的 playername 获取 domain"""
         # URL encode 用户名
-        playername_encoded = urllib.parse.quote(playername)
+        playername_encoded = urllib.parse.quote(self.playername)
         headers = {
             "User-Agent": "Mozilla/5.0 (X11; Linux x86_64; rv:146.0) Gecko/20100101 Firefox/146.0",
             "Accept": "*/*",
@@ -55,7 +55,7 @@ class Player(Star):
             # "Cookie": "ssxmod_itna=...; 5ewin_session_=...",
         }
         url = "https://arena.5eplay.com/api/search/player/1/16"
-        params = {"keywords": playername}
+        params = {"keywords": self.playername}
 
         async with session.get(url, headers=headers, params=params) as resp:
             if resp.status != 200:
@@ -65,11 +65,11 @@ class Player(Star):
 
             users = data.get("data", {}).get("user", {}).get("list", [])
             for u in users:
-                if u.get("username") == playername:
+                if u.get("username") == self.playername:
                     return u.get("domain")
             return None
 
-    async def get_uuid(session: aiohttp.ClientSession, domain: str):
+    async def get_uuid(self, session: aiohttp.ClientSession):
         """根据 domain 获取 uuid"""
         post_url = "https://gate.5eplay.com/userinterface/http/v1/userinterface/idTransfer"
         post_headers = {
@@ -86,7 +86,7 @@ class Player(Star):
         }
         post_data = {
             "trans": {
-                "domain": domain
+                "domain": self.domain
             }
         }
 
@@ -96,10 +96,9 @@ class Player(Star):
             uuid = data.get("data", {}).get("uuid")
             return uuid
 
-    async def get_match_id(self, session: aiohttp.ClientSession,uuid):
+    async def get_match_id(self, session: aiohttp.ClientSession):
         """根据 uuid 获取最近一把比赛的 match_id"""
-        get_url = f"https://gate.5eplay.com/crane/http/api/data/player_match?uuid={uuid}"
-        real_url = "https://gate.5eplay.com/crane/http/api/data/player_match?uuid=abee0c4d-aa77-11ef-848e-506b4bfa3106"
+        get_url = f"https://gate.5eplay.com/crane/http/api/data/player_match?uuid={self.uuid}"
         get_headers = {
             "User-Agent": "Mozilla/5.0 (X11; Linux x86_64; rv:146.0) Gecko/20100101 Firefox/146.0",
             "Accept": "*/*",
@@ -150,7 +149,7 @@ class Player(Star):
         """处理比赛数据，提取并格式化战绩信息"""
         # 这里根据实际的 json 结构提取所需信息
         basic_info = json_data.get("data", {}).get("main", {})
-        map = basic_info["map_desc"]
+        match_map = basic_info["map_desc"]
         group_1 = json_data.get("data", {}).get("group_1", [])
         group_2 = json_data.get("data", {}).get("group_2", [])
         players = group_1 + group_2
@@ -169,7 +168,7 @@ class Player(Star):
             })
         # return map, player_data_list
         # 先测试性地简单返回一个 map
-        return f"地图: {map}"
+        return f"地图: {match_map}"
 
     @filter.regex(r"^(?:添加用户|用户|添加玩家|玩家)\s*(.+)")
     async def add_player_data(self, event: AstrMessageEvent):
@@ -186,11 +185,11 @@ class Player(Star):
             yield event.plain_result(f"用户 {self.username} 已添加玩家 {self.playername} 的数据。")
             return
         async with aiohttp.ClientSession() as session:
-            self.domain = await self.get_domain(self.playername)
+            self.domain = await self.get_domain(session)
             if not self.domain:
                 yield event.plain_result(f"获取玩家 {self.playername} 的 domain 信息失败，请稍候重试")
                 return
-            self.uuid = await self.get_uuid(self.domain)
+            self.uuid = await self.get_uuid(session)
             if not uuid:
                 yield event.plain_result(f"获取玩家 {self.playername} 的 uuid 信息失败，请稍后重试")
                 return
@@ -223,7 +222,7 @@ class Player(Star):
         # 更新 self.uuid
         self.uuid = player_info.get("uuid")
         async with aiohttp.ClientSession() as session:
-            match_id = await self.get_match_id(session, self.uuid)
+            match_id = await self.get_match_id(session)
             if not match_id:
                 yield event.plain_result(f"未找到玩家 {player_info.get('name')} 的最近比赛信息。")
                 return
