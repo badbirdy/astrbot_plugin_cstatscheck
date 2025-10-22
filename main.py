@@ -1,7 +1,7 @@
 import re
 import json
 import asyncio
-import urllib
+import urllib.parse
 import aiohttp
 from astrbot.api.event import filter, AstrMessageEvent, MessageEventResult
 from astrbot.api.star import Context, Star, register
