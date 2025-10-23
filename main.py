@@ -11,11 +11,9 @@ from astrbot.api import logger
 #todo: 优化数据存储结构，支持多个玩家数据，解决self数据的覆盖问题
 #todo：增加战绩数据的格式化输出，而不是仅仅输出地图名称
 #todo：增加命令帮助信息，方便用户使用
-#todo：增加单元测试
-#todo：引入 tenacity 库以处理网络请求的重试和超时
 
 @register("cstatcheck", "badbirdy", "一个简单的 cs 战绩查询插件", "1.0.0")
-class Player(Star):
+class Cstatscheck(Star):
     def __init__(self, context: Context):
         super().__init__(context)
         self.data_dir = StarTools.get_data_dir()
@@ -33,16 +31,6 @@ class Player(Star):
         if not self.user_data_file.exists():
             with open(self.user_data_file, "w", encoding="utf-8") as f:
                 json.dump({}, f)
-
-    # # 注册指令的装饰器。指令名为 helloworld。注册成功后，发送 `/helloworld` 就会触发这个指令，并回复 `你好, {user_name}!`
-    # @filter.command("helloworld")
-    # async def helloworld(self, event: AstrMessageEvent):
-    #     """这是一个 hello world 指令""" # 这是 handler 的描述，将会被解析方便用户了解插件内容。建议填写。
-    #     user_name = event.get_sender_name()
-    #     message_str = event.message_str # 用户发的纯文本消息字符串
-    #     message_chain = event.get_messages() # 用户所发的消息的消息链 # from astrbot.api.message_components import *
-    #     logger.info(message_chain)
-    #     yield event.plain_result(f"Hello, {user_name}, 你发了 {message_str}!") # 发送一条纯文本消息
 
     @retry(stop=stop_after_attempt(3), wait=wait_fixed(1)) # 重试3次，每次间隔2秒
     async def get_domain(self, session: aiohttp.ClientSession):
