@@ -3,9 +3,16 @@ import json
 import asyncio
 import urllib.parse
 import aiohttp
+from tenacity import retry, stop_after_attempt, wait_fixed
 from astrbot.api.event import filter, AstrMessageEvent, MessageEventResult
 from astrbot.api.star import Context, Star, register, StarTools
 from astrbot.api import logger
+#todo: 增加错误处理和日志记录
+#todo: 优化数据存储结构，支持多个玩家数据，解决self数据的覆盖问题
+#todo：增加战绩数据的格式化输出，而不是仅仅输出地图名称
+#todo：增加命令帮助信息，方便用户使用
+#todo：增加单元测试
+#todo：引入 tenacity 库以处理网络请求的重试和超时
 
 @register("cstatcheck", "badbirdy", "一个简单的 cs 战绩查询插件", "1.0.0")
 class Player(Star):
@@ -20,7 +27,7 @@ class Player(Star):
 
     async def initialize(self):
         """可选择实现异步的插件初始化方法，当实例化该插件类之后会自动调用该方法。"""
-        # 确保数据目录存在
+        #  确保数据目录存在
         self.data_dir.mkdir(exist_ok=True)
         # 如果用户数据文件不存在，则创建一个空的 JSON 文件
         if not self.user_data_file.exists():
@@ -37,6 +44,7 @@ class Player(Star):
     #     logger.info(message_chain)
     #     yield event.plain_result(f"Hello, {user_name}, 你发了 {message_str}!") # 发送一条纯文本消息
 
+    @retry(stop=stop_after_attempt(3), wait=wait_fixed(1)) # 重试3次，每次间隔2秒
     async def get_domain(self, session: aiohttp.ClientSession):
         """根据用户输入的 playername 获取 domain"""
         # URL encode 用户名
@@ -69,6 +77,7 @@ class Player(Star):
                     return u.get("domain")
             return None
 
+    @retry(stop=stop_after_attempt(3), wait=wait_fixed(1)) # 重试3次，每次间隔2秒
     async def get_uuid(self, session: aiohttp.ClientSession):
         """根据 domain 获取 uuid"""
         post_url = "https://gate.5eplay.com/userinterface/http/v1/userinterface/idTransfer"
@@ -96,6 +105,7 @@ class Player(Star):
             uuid = data.get("data", {}).get("uuid")
             return uuid
 
+    @retry(stop=stop_after_attempt(3), wait=wait_fixed(1)) # 重试3次，每次间隔2秒
     async def get_match_id(self, session: aiohttp.ClientSession):
         """根据 uuid 获取最近一把比赛的 match_id"""
         get_url = f"https://gate.5eplay.com/crane/http/api/data/player_match?uuid={self.uuid}"
@@ -122,6 +132,7 @@ class Player(Star):
                 return match_list[0].get("match_id")
             return None
 
+    @retry(stop=stop_after_attempt(3), wait=wait_fixed(1)) # 重试3次，每次间隔2秒
     async def get_match_stats(self, session: aiohttp.ClientSession, match_id):
         """根据 match_id 获取比赛数据"""
         get_url = f"https://gate.5eplay.com/crane/http/api/data/match/{match_id}"
@@ -145,7 +156,7 @@ class Player(Star):
             data = await resp.json()
             return data.get("data", {})
 
-    async def process_json(self, json_data, match_id):
+    async def process_json(self, json_data, match_id, player_send):
         """处理比赛数据，提取并格式化战绩信息"""
         # 先存一份完整 json 数据留作备份
         with open(self.data_dir / f"match_{match_id}.json", "w", encoding="utf-8") as f:
@@ -156,22 +167,24 @@ class Player(Star):
         group_1 = json_data.get("group_1", [])
         group_2 = json_data.get("group_2", [])
         players = group_1 + group_2
-        player_data_list = []
+        player_data = {}
         for player in players:
             adr = player.get("fight", {}).get("adr")
             rating = player.get("fight", {}).get("rating2")
             change_elo = player.get("sts", {}).get("change_elo")
-            playername = player.get("user_info", {}).get("username")
+            playername = player.get("user_info", {}).get("user_data", {}).get("username")
             # 创建字典数组存储信息
-            player_data_list.append({
-                "playername": playername,
+            player_data[playername] = {
                 "adr": adr,
                 "rating": rating,
                 "change_elo": change_elo
-            })
+            }
+            # 存进 json 文件查看
+            with open(self.data_dir / f"match_{match_id}_players.json", "w", encoding="utf-8") as f:
+                json.dump(player_data, f, ensure_ascii=False, indent=4)
         # return map, player_data_list
         # 先测试性地简单返回一个 map
-        return f"地图: {match_map}"
+        return f"\n地图: {match_map}\nRating：{player_data[player_send]['rating']}\nADR：{player_data[player_send]['adr']}"
 
     @filter.regex(r"^(?:添加用户|用户|添加玩家|玩家)\s*(.+)")
     async def add_player_data(self, event: AstrMessageEvent):
@@ -192,14 +205,14 @@ class Player(Star):
             if not self.domain:
                 yield event.plain_result(f"获取玩家 {self.playername} 的 domain 信息失败，请稍候重试")
                 return
-            else:
-                yield event.plain_result(f"成功获取到 domain: {self.domain}")
+            # else:
+            #     yield event.plain_result(f"成功获取到 domain: {self.domain}")
             self.uuid = await self.get_uuid(session)
             if not self.uuid:
                 yield event.plain_result(f"获取玩家 {self.playername} 的 uuid 信息失败，请稍后重试")
                 return
-            else:
-                yield event.plain_result(f"成功获取到 uuid: {self.uuid}")
+            # else:
+            #     yield event.plain_result(f"成功获取到 uuid: {self.uuid}")
 
         # 存储玩家信息到 JSON 文件
         player_data = {}
@@ -211,20 +224,26 @@ class Player(Star):
             "domain": self.domain,
             "uuid": self.uuid,
         }
+        yield event.plain_result(f"成功添加用户 {self.username} 对应的玩家 {self.playername} 数据。")
         with open(self.user_data_file, "w", encoding="utf-8") as f:
             json.dump(player_data, f, ensure_ascii=False, indent=4)
     
-    @filter.regex(r"^(?:获取战绩|战绩)\s*(.+)")
+    @filter.regex(r"^(?:获取战绩|战绩)\s*(.*)")
     async def fetch_match_stats(self, event: AstrMessageEvent):
         """响应用户获取战绩请求，读取存储的玩家数据并获取战绩信息"""
         full_text = event.message_str.strip()
-        match = re.match(r"^(?:获取战绩|战绩)\s*(.+)", full_text)
-        self.username = match.groups()[0].strip()
+        match = re.match(r"^(?:获取战绩|战绩)\s*@?([^\(]+)", full_text)
+        if match is None:
+            self.username = event.get_sender_name()
+        else:
+            self.username = match.groups()[0].strip()
         with open(self.user_data_file, "r", encoding="utf-8") as f:
             player_data = json.load(f)
         if self.username not in player_data:
-            yield event.plain_result(f"用户 {self.username} 未添加玩家数据，请先添加玩家。")
+            yield event.plain_result(f"用户 {self.username} 未添加数据，请先添加游戏ID")
             return
+        else:
+            player_send = player_data[self.username]["name"]
         player_info = player_data[self.username]
         # 更新 self.uuid
         self.uuid = player_info.get("uuid")
@@ -233,16 +252,16 @@ class Player(Star):
             if not match_id:
                 yield event.plain_result(f"未找到玩家 {player_info.get('name')} 的最近比赛信息。")
                 return
-            else:
-                yield event.plain_result(f"玩家 {player_info.get('name')} 最近的一场比赛 ID: {match_id}")
+            # else:
+            #     yield event.plain_result(f"玩家 {player_info.get('name')} 最近的一场比赛 ID: {match_id}")
             match_stats = await self.get_match_stats(session, match_id)
             if not match_stats:
                 yield event.plain_result(f"未能获取比赛 {match_id} 的详细数据。")
                 return
-            else:
-                yield event.plain_result(f"成功获取比赛 {match_id} 的详细数据。")
-            match_stats_json = await self.process_json(match_stats, match_id)
-            yield event.plain_result(f"玩家 {player_info.get('name')} 的最近一场比赛中：{match_stats_json}")
+            # else:
+            #     yield event.plain_result(f"成功获取比赛 {match_id} 的详细数据。")
+            match_stats_json = await self.process_json(match_stats, match_id, player_send)
+            yield event.plain_result(f"{player_info.get('name')} 的最近一场比赛中：{match_stats_json}")
 
     async def user_is_added(self, username: str, playername: str) -> bool:
         """检查用户是否已添加玩家数据"""
@@ -254,5 +273,3 @@ class Player(Star):
 
     async def terminate(self):
         """可选择实现异步的插件销毁方法，当插件被卸载/停用时会调用。"""
-
-    #todo: 错误信息处理
