@@ -5,7 +5,7 @@ from typing import Union
 class PlayerDataRequest:
     message_str: str
     qq_id: str
-    domian: str
-    uuid: str
+    domain: Union[str, None]
+    uuid: Union[str, None]
     playername: Union[str, None]
     error_msg: Union[str, None]
