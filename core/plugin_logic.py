@@ -285,7 +285,7 @@ class CstatsCheckPluginLogic:
             match_result = "胜利"
         else:
             match_result = "失败"
-        text = f"5eplayer {player_stats.playername} 最近一场比赛战绩:\n Map: {match_data.map} 比赛结果: {match_result} \nElo变化:{player_stats.elo_change}\n rating: {player_stats.rating}\nadr: {player_stats.adr}\nkill:{player_stats.kill}  death:{player_stats.death}\n爆头率:{player_stats.headshot_rate} "
+        text = f"5eplayer {player_stats.playername} 的{'上' * match_data.match_round}把比赛战绩:\n Map: {match_data.map} 比赛结果: {match_result} \n Elo变化: {player_stats.elo_change}\n rating: {player_stats.rating}\n adr: {player_stats.adr}\n kill: {player_stats.kill}    death: {player_stats.death}\n 爆头率: {player_stats.headshot_rate} "
         return text
 
 
