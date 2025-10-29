@@ -129,7 +129,7 @@ class Cstatscheck(Star):
             yield event.plain_result(f"用户 {request_data.qq_id} 未添加数据，请先添加游戏ID")
             return
         else:
-            player_send = player_data[request_data.qq_id]["name"]
+            sender_playername = player_data[request_data.qq_id]["name"]
         player_info = player_data[request_data.qq_id]
         # 更新 request_data.uuid
         request_data.uuid = player_info.get("uuid")
@@ -155,23 +155,33 @@ class Cstatscheck(Star):
             if qid != request_data.qq_id
         ]
         match_data = await self.plugin_logic.process_json(
-            match_stats, match_round, match_id, player_send, teammate_of_send
+            match_stats, match_round, match_id, sender_playername, teammate_of_send
         )
-        player_send_text = await self.plugin_logic.handle_to_llm_text(
-            match_data, player_send
+        stats_text = await self.plugin_logic.handle_to_llm_text(
+            match_data, sender_playername
         )
         prov = self.context.get_using_provider(umo=event.unified_msg_origin)
         if prov:
             llm_resp = await prov.text_chat(
-                prompt=f"{player_info.get('name')} 的最近一场比赛中：{player_send_text}",
+                prompt=f"{stats_text}",
                 context=[
-                    {"role": "user", "content": f"{player_send_text}"},
+                    {"role": "user", "content": "5eplayer 薛定谔的哥本哈根 最近一场比赛战绩：\nMap: 炙热沙城2 \n比赛结果: 失败 \nRating: 0.91  \nADR: 53.16 \nElo变化: 12.78"},
                     {"role": "cs战绩短评官", "content": "评价为这把睡了，但睡得不深"},
+
+                    {"role": "user", "content": "5eplayer Mr_Bip 最近一场比赛战绩：\nMap: 炙热沙城2 \n比赛结果: 失败 \nRating: 1.59  \nADR: 121.05 \nElo变化: 27.71"},
+                    {"role": "cs战绩短评官", "content": "评价为燃成灰了都带不动四个fw"},
+
+                    {"role": "user", "content": "5eplayer 薛定谔的哥本哈根 最近一场比赛战绩: Map: 炙热沙城2 比赛结果: 胜利  Elo变化: 12.78 rating: 0.91 adr: 53.16 kill: 11    death: 10 爆头率: 27.27%"},
+                    {"role": "cs战绩短评官", "content": "评价为躺赢局，数据比体温还低"},
+
+                    {"role": "user", "content": "5eplayer 薛定谔的哥本哈根 的上上局比赛战绩: Map: 炙热沙城2 比赛结果: 胜利  Elo变化: -14.88 rating: 0.71 adr: 76.94 kill: 10    death: 15 爆头率: 50.00%"},
+                    {"role": "cs战绩短评官", "content": "评价为薛定谔的哥本哈出，裤子里全是尿，没有一滴汗"},
+
                 ],
-                system_prompt="你需要对上面的cs战绩进行一个简短的评价，不超过二十个字，rating 和 adr 是这局表现的重要参考因素，rating 和 adr 很高(1.2raing以上或者90ADR以上，越高越强，夸得越凶)但是输了可以用悲情英雄、尽力局、拉满了、燃成灰了、一绿带四红来形容，打得好赢了可以用大哥、带飞等来形容，打得菜(0.8rating以下或者50ADR以下，越低越菜，骂得越狠)可以用美美隐身、这把睡了、摊子、fvv、玩家名称中选一部分+出(比如玩家名称叫玩机器，就可以称为 玩出，请注意要根据玩家名称来，不要忽视玩家名称直接套用玩出) 作为称呼来形容，如果战绩一般就正常评价吧，但是请注意，不要只是简单地采用上面的短语，要在上面的短语基础上增添内容，可以经常在句首加上“评价为”，菜的时候就刻薄一点，带点黑色幽默那种，强的时候该夸就夸，不要太夸张地夸",
+                system_prompt="你需要对上面的cs战绩进行一个简短的评价，不超过二十个字，rating 和 adr 是这局表现的重要参考因素，rating 和 adr 很高(1.2raing以上或者90ADR以上，越高越强，夸得越凶)但是输了可以用悲情英雄、尽力局、拉满了、燃成灰了、一绿带四红来形容，打得好赢了可以用明星哥、个人英雄主义、大哥、数值拉满了、带飞等来形容，打得菜(0.8rating以下或者50ADR以下，越低越菜，骂得越狠)可以用美美隐身、这把睡了、摊子、不像人类、尿完了、裤子里全是尿，没有一滴汗、fvv、玩家名称中选一部分+出(比如玩家名称叫玩机器，就可以称为 玩出，请注意要根据玩家名称来，不要忽视玩家名称直接套用玩出) 作为称呼来形容，如果战绩一般就正常评价吧，但是请注意，不要只是简单地采用上面的短语，要在上面的短语基础上增添内容，可以经常在句首加上“评价为”，但是不用在后面跟上冒号这类标点，菜的时候就刻薄一点，带点平常语气说出搞笑评价、黑色幽默那种，强的时候该夸就夸，不要太夸张地夸",
             )
             logger.info(llm_resp)
-            send_text = f"{player_send_text}\n{llm_resp.completion_text}"
+            send_text = f"{stats_text}\n{llm_resp.completion_text}"
             yield event.chain_result([Plain(send_text)])
 
     @filter.command("调试")
