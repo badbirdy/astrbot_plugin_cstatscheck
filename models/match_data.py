@@ -1,29 +1,28 @@
 from dataclasses import dataclass
-from typing import List
+from typing import Dict
 
 from datetime import datetime
-from sqlmodel import Double
 
 @dataclass
 class PlayerStats:
     playername: str
     uuid: str
     uid: str # match的json中才有的值
-    elo_change: Double # 天梯分数变化
-    rating: Double
-    adr: Double
-    rws: Double
+    win: bool
+    elo_change: float # 天梯分数变化
+    rating: float
+    adr: float
+    rws: float
     kill: int
     death: int
-    headshot_rate: Double # 爆头率
+    headshot_rate: float # 爆头率
 
 @dataclass
 class MatchData:
     map: str
     start_time: int # Unix 时间戳 timestamp
     end_time: int
-    win: bool
-    player_stats: List[PlayerStats]
+    player_stats: Dict[str, PlayerStats]
     mvp_uid: str
 
     @property
