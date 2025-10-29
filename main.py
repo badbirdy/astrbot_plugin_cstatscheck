@@ -32,11 +32,11 @@ class Cstatscheck(Star):
                 json.dump({}, f)
         self._session = aiohttp.ClientSession()
 
-    @filter.command("bind", alias={'添加', '绑定', '添加用户', '用户', '添加玩家', '玩家'})
+    @filter.command("bind", alias={'添加', '绑定', '添加用户', '绑定用户'})
     async def add_player_data(self, event: AstrMessageEvent):
         """响应用户添加玩家请求，并进行将玩家数据进行存储"""
 
-        request_data = await self.plugin_logic.handle_player_data_request(event, ["bind"])
+        request_data = await self.plugin_logic.handle_player_data_request(event, ["bind", "添加", "绑定", "添加  ", "绑定用户"])
         full_text = event.message_str.strip()
         match = re.match(r"^(?:添加用户|用户|添加玩家|玩家|添加|绑定|bind)\s*(.+)", full_text)
         # logger.info(f"match:{match} 和 full_text: {full_text}")
@@ -142,6 +142,7 @@ class Cstatscheck(Star):
             yield event.chain_result([Plain(send_text)])
 
     @filter.command("调试")
+    @filter.permission_type(filter.PermissionType.ADMIN)
     async def testdebug(self, event: AstrMessageEvent):
         msg_chain = event.get_messages()
         for comp in msg_chain:
@@ -149,5 +150,26 @@ class Cstatscheck(Star):
                 com_dic = comp.toDict()
                 print(com_dic)
 
+    @filter.command("cs_help")
+    async def cs_help(self, event: AstrMessageEvent):
+        """显示cs插件帮助信息"""
+        prefix = "/"
+        # if len(self.wake_prefix) > 0:
+        #     prefix = self.wake_prefix[0]
+
+        help_msg = f"""cstatcheck插件使用帮助：
+1. 账号绑定
+命令: {prefix}bind [5e_player_name] 或 {prefix}绑定 [5e_player_name]
+参数: 5e_player_name - 您的5e账号名
+示例: {prefix}bind ExamplePlayer
+
+2. 战绩查询
+命令: {prefix}match [@群成员] 或 {prefix}战绩 [@群成员] 或 {prefix}获取战绩 [@群成员]
+参数:
+  @群成员 - 可选参数，艾特某个已绑定的群成员来查询他的战绩，无此参数则查询自己战绩
+示例: {prefix}match @bdbd
+注: 实际使用时不需要输入[]。
+"""
+        yield event.plain_result(help_msg)
     async def terminate(self):
         """可选择实现异步的插件销毁方法，当插件被卸载/停用时会调用。"""
