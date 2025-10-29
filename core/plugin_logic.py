@@ -280,7 +280,7 @@ class CstatsCheckPluginLogic:
         #     noob_text = "你就是最菜的，怎么敢查战绩的"
         # else:
         #     noob_text = f"本场菜比是 {noobname}，打出了 {noobdata['rating']} 超高rating，这是人类啊"
-        player_stats = match_data.player_stats["playersend"]
+        player_stats = match_data.player_stats[f"{player_send}"]
         if player_stats.win:
             match_result = "胜利"
         else:
@@ -294,17 +294,17 @@ class CstatsCheckPluginLogic:
         """提取比赛中玩家数据，返回PlayerStats"""
         uuid = json_data.get("user_info", {}).get("user_data", {}).get("uuid")
         uid = json_data.get("user_info", {}).get("user_data", {}).get("uid")
-        is_win = json_data.get("fight", {}).get("is_win")
-        elo_change = json_data.get("sts", {}).get("change_elo", 0)
-        rating = json_data.get("fight", {}).get("rating2")
-        adr = json_data.get("fight", {}).get("adr")
-        rws = json_data.get("fight", {}).get("rws")
-        kill = json_data.get("fight", {}).get("kill")
-        death = json_data.get("fight", {}).get("death")
+        is_win = bool(json_data.get("fight", {}).get("is_win"))
+        elo_change = float(json_data.get("sts", {}).get("change_elo", 0))
+        rating = float(json_data.get("fight", {}).get("rating2"))
+        adr = float(json_data.get("fight", {}).get("adr"))
+        rws = float(json_data.get("fight", {}).get("rws"))
+        kill = int(json_data.get("fight", {}).get("kill"))
+        death = int(json_data.get("fight", {}).get("death"))
         if kill == 0:
             headshot_rate = 0
         else:
-            headshot_rate: float = json_data.get("fight", {}).get("headshot") / kill
+            headshot_rate: float = int(json_data.get("fight", {}).get("headshot")) / kill
         return PlayerStats(
             playername=player,
             uuid=uuid,
