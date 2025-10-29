@@ -7,9 +7,9 @@ from tenacity import retry, stop_after_attempt, wait_fixed
 
 from astrbot.api import logger
 from astrbot.api.event import AstrMessageEvent
-from astrbot.api.star import StarTools
 
 from ..models.player_data import PlayerDataRequest
+from ..models.match_data import PlayerStats, MatchData
 
 
 class CstatsCheckPluginLogic:
@@ -66,23 +66,22 @@ class CstatsCheckPluginLogic:
         error_msg = None
 
         try:
-        #     # 解析命令
-        #     ea_name, game,pider = await self._parse_input_regex(
-        #         str_to_remove_list, self.STAT_PATTERN, message_str
-        #     )
-        #     # 由于共用解析方法所以这里赋个值
-        #     if str_to_remove_list == ["servers", "服务器"]:
-        #         server_name = ea_name
+            #     # 解析命令
+            playername = await self._parse_input_regex(str_to_remove_list, message_str)
+            #     # 由于共用解析方法所以这里赋个值
+            #     if str_to_remove_list == ["servers", "服务器"]:
+            #         server_name = ea_name
             # 处理EA账号名
-            if not playername and  not uuid:
-                playername, uuid, ea_name_error = await self._resolve_5e_name(playername, qq_id)
+            if not playername and not uuid:
+                playername, uuid, ea_name_error = await self._resolve_5e_name(
+                    playername, qq_id
+                )
                 if ea_name_error:
                     error_msg = ea_name_error
                     raise ValueError(error_msg)  # 抛出异常以便被捕获
 
         except Exception as e:
             error_msg = str(e)
-
 
         return PlayerDataRequest(
             message_str=message_str,
@@ -229,7 +228,7 @@ class CstatsCheckPluginLogic:
         match_id,
         player_send,
         teammate_of_send: list[str] | None = None,
-    ):
+    ) -> MatchData:
         """处理比赛数据，提取并格式化战绩信息"""
         # 先存一份完整 json 数据留作备份
         with open(self.data_dir / f"match_{match_id}.json", "w", encoding="utf-8") as f:
@@ -237,45 +236,86 @@ class CstatsCheckPluginLogic:
         # 这里根据实际的 json 结构提取所需信息
         basic_info = json_data.get("main", {})
         match_map = basic_info["map_desc"]
+        start_time = basic_info["start_time"]
+        end_time = basic_info["end_time"]
+        mvp_uid = basic_info["mvp_uid"]
         group_1 = json_data.get("group_1", [])
         group_2 = json_data.get("group_2", [])
-        players = group_1 + group_2
+        players_stats = group_1 + group_2
         players_to_find = [player_send] + (teammate_of_send if teammate_of_send else [])
-        players = [
-            p
-            for p in players
-            if p.get("user_info", {}).get("user_data", {}).get("username")
-            in players_to_find
-        ]
-        player_data = {}
-        for player in players:
-            is_win = "胜利" if player.get("fight", {}).get("is_win") == 1 else "失败"
-            adr = player.get("fight", {}).get("adr")
-            rating = player.get("fight", {}).get("rating2")
-            change_elo = player.get("sts", {}).get("change_elo")
-            playername = (
-                player.get("user_info", {}).get("user_data", {}).get("username")
-            )
-            # 创建字典数组存储信息
-            player_data[playername] = {
-                "is_win": is_win,
-                "adr": adr,
-                "rating": rating,
-                "change_elo": change_elo,
-            }
-        # 存进 json 文件查看
-        with open(
-            self.data_dir / f"match_{match_id}_players.json", "w", encoding="utf-8"
-        ) as f:
-            json.dump(player_data, f, ensure_ascii=False, indent=4)
-        if len(players) == 1:
-            noobname, noobdata = "", {}
+        match_data = MatchData(
+            map=match_map,
+            start_time=start_time,
+            end_time=end_time,
+            player_stats={},
+            mvp_uid=mvp_uid,
+        )
+        for player_stats in players_stats:
+            if (
+                player_stats.get("user_info", {}).get("user_data", {}).get("username")
+                in players_to_find
+            ):
+                player_to_find = (
+                    player_stats.get("user_info", {})
+                    .get("user_data", {})
+                    .get("username")
+                )
+                player_data = self._extract_player_data(player_stats, player_to_find)
+                match_data.player_stats[player_data.playername] = player_data
+        # if len(players) == 1:
+        #     noobname, noobdata = "", {}
+        # else:
+        #     noobname, noobdata = min(player_data.items(), key=lambda x: x[1]["rating"])
+
+        return match_data
+
+    async def handle_to_llm_text(self, match_data: MatchData, player_send: str) -> str:
+        # match_map, player_send_data, noobname, noobdata = await self.plugin_logic.process_json(match_stats, match_id, player_send, teammate_of_send)
+        # player_send_text = f"5eplayer {player_send} 最近一场比赛战绩：\nMap: {match_map}\n比赛结果: {player_send_data['is_win']}\nRating: {player_send_data['rating']} \nADR: {player_send_data['adr']}\nElo变化: {player_send_data['change_elo']}\n"
+        # if noobname == "":
+        #     noob_text = "你一个人偷偷玩的，真厉害"
+        # elif noobname == player_send:
+        #     noob_text = "你就是最菜的，怎么敢查战绩的"
+        # else:
+        #     noob_text = f"本场菜比是 {noobname}，打出了 {noobdata['rating']} 超高rating，这是人类啊"
+        player_stats = match_data.player_stats["playersend"]
+        if player_stats.win:
+            match_result = "胜利"
         else:
-            noobname, noobdata = min(player_data.items(), key=lambda x: x[1]["rating"])
-        return match_map, player_data[player_send], noobname, noobdata
-        # return map, player_data_list
-        # 先测试性地简单返回一个 map
-        return f"\n地图: {match_map}\nRating：{player_data[player_send]['rating']}\nADR：{player_data[player_send]['adr']}"
+            match_result = "失败"
+        text = f"5eplayer {player_stats.playername} 最近一场比赛战绩:\n Map: {match_data.map} 比赛结果: {match_result} \nElo变化:{player_stats.elo_change}\n rating: {player_stats.rating}\nadr: {player_stats.adr}\nkill:{player_stats.kill}  death:{player_stats.death}\n爆头率:{player_stats.headshot_rate} "
+        return text
+
+
+    @staticmethod
+    def _extract_player_data(json_data, player) -> PlayerStats:
+        """提取比赛中玩家数据，返回PlayerStats"""
+        uuid = json_data.get("user_info", {}).get("user_data", {}).get("uuid")
+        uid = json_data.get("user_info", {}).get("user_data", {}).get("uid")
+        is_win = json_data.get("fight", {}).get("is_win")
+        elo_change = json_data.get("sts", {}).get("change_elo", 0)
+        rating = json_data.get("fight", {}).get("rating2")
+        adr = json_data.get("fight", {}).get("adr")
+        rws = json_data.get("fight", {}).get("rws")
+        kill = json_data.get("fight", {}).get("kill")
+        death = json_data.get("fight", {}).get("death")
+        if kill == 0:
+            headshot_rate = 0
+        else:
+            headshot_rate: float = json_data.get("fight", {}).get("headshot") / kill
+        return PlayerStats(
+            playername=player,
+            uuid=uuid,
+            uid=uid,
+            win=is_win,
+            elo_change=elo_change,
+            rating=rating,
+            adr=adr,
+            rws=rws,
+            kill=kill,
+            death=death,
+            headshot_rate=headshot_rate,
+        )
 
     async def user_is_added(self, username: str, playername: str) -> bool:
         """检查用户是否已添加玩家数据"""
@@ -286,3 +326,30 @@ class CstatsCheckPluginLogic:
                 username in player_data and player_data[username]["name"] == playername
             )
         return False
+
+    @staticmethod
+    async def _parse_input_regex(
+        str_to_remove_list: list[str],
+        base_string: str,
+    ):
+        """私有方法：从base_string中移除str_to_remove_list并去空格，然后根据正则取出参数
+        Args:
+            str_to_remove_list: 需要移除的子串list
+            base_string: 原始字符串
+        Returns:
+            处理后的字符串
+        """
+        # 移除目标子串和空格
+        for str_to_remove in str_to_remove_list:
+            base_string = base_string.replace(str_to_remove, "")
+        clean_str = base_string.replace(" ", "")
+        # 用正则提取输入的参数
+        name = clean_str.strip()
+        # if pattern is not None:
+        #     match = pattern.match(clean_str.strip())
+        #     if not match:
+        #         raise ValueError("格式错误，正确格式：[用户名][,game=游戏名]")
+        #     name = match.group(1) or None
+        # else:
+        #     name = clean_str.strip()
+        return name
