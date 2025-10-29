@@ -197,20 +197,22 @@ class Cstatscheck(Star):
     async def cs_help(self, event: AstrMessageEvent):
         """显示cs插件帮助信息"""
         prefix = "/"
-        # if len(self.wake_prefix) > 0:
-        #     prefix = self.wake_prefix[0]
-
         help_msg = f"""cstatcheck插件使用帮助：
 1. 账号绑定
-命令: {prefix}bind [5e_player_name] 或 {prefix}绑定 [5e_player_name]
-参数: 5e_player_name - 您的5e账号名
+命令: {prefix}command [5e_player_name]
+参数:
+    commmand - 必选命令，有 bind，绑定，绑定用户，添加，添加用户
+    5e_player_name - 必选参数，您的5e账号名
 示例: {prefix}bind ExamplePlayer
 
 2. 战绩查询
-命令: {prefix}match [@群成员] 或 {prefix}战绩 [@群成员] 或 {prefix}获取战绩 [@群成员]
+命令: {prefix}command [@群成员] [比赛场次]
 参数:
-  @群成员 - 可选参数，艾特某个已绑定的群成员来查询他的战绩，无此参数则查询自己战绩
-示例: {prefix}match @bdbd
+  command - 必选命令，有 match，战绩，获取战绩
+  @群成员 - 可选参数，可以艾特某个已绑定的群成员来查询他的战绩，无此参数则查询自己战绩
+  比赛场次 - 可选参数，查的是倒数第几把，无此参数默认查询最近一把
+示例: {prefix}match @某某 2
+      {prefix}match @某某
 注: 实际使用时不需要输入[]。
 """
         yield event.plain_result(help_msg)
@@ -218,8 +220,6 @@ class Cstatscheck(Star):
     async def terminate(self):
         """可选择实现异步的插件销毁方法，当插件被卸载/停用时会调用。"""
         logger.info("cstatscheck 插件正在卸载，开始清理后台任务...")
-
-        # 关闭 session
         if self._session:
             await self._session.close()
 
