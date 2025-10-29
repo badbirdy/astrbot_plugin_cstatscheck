@@ -1,4 +1,5 @@
 import re
+import shutil
 import json
 import aiohttp
 from astrbot.api.event import filter, AstrMessageEvent
@@ -106,24 +107,33 @@ class Cstatscheck(Star):
         request_data = await self.plugin_logic.handle_player_data_request(
             event, ["match"]
         )
-        full_text = event.message_str.strip()
-        match = re.match(r"^(?:获取战绩|战绩|match)\s*@?([^\(]+)", full_text)
-        qq_id = event.get_sender_id()
-        if match is None:
-            request_data.user_name = event.get_sender_name()
+        msg_chain = event.get_messages()
+        match_round = 1
+        if len(msg_chain) == 1:
+            match = re.search(r"\b(\d+)\b", msg_chain[0].toString())
+            if match:
+                match_round = int(match.group(1))
+            request_data.qq_id = event.get_sender_id()
         else:
-            request_data.user_name = match.groups()[0].strip()
+            for comp in msg_chain[1:]:
+                if comp.type == ComponentType.At:
+                    com_dic = comp.toDict()
+                    request_data.qq_id = com_dic.get("data", {}).get("qq")
+                if comp.type == ComponentType.Plain:
+                    match = re.search(r"\b(\d+)\b", comp.toString())
+                    if match:
+                        match_round = int(match.group(1))
         with open(self.user_data_file, "r", encoding="utf-8") as f:
             player_data = json.load(f)
-        if qq_id not in player_data:
-            yield event.plain_result(f"用户 {qq_id} 未添加数据，请先添加游戏ID")
+        if request_data.qq_id not in player_data:
+            yield event.plain_result(f"用户 {request_data.qq_id} 未添加数据，请先添加游戏ID")
             return
         else:
-            player_send = player_data[qq_id]["name"]
-        player_info = player_data[qq_id]
+            player_send = player_data[request_data.qq_id]["name"]
+        player_info = player_data[request_data.qq_id]
         # 更新 request_data.uuid
         request_data.uuid = player_info.get("uuid")
-        match_id = await self.plugin_logic.get_match_id(self._session, request_data)
+        match_id = await self.plugin_logic.get_match_id(self._session, request_data, match_round)
         if not match_id:
             yield event.plain_result(
                 f"未找到玩家 {player_info.get('name')} 的最近比赛信息。"
@@ -145,7 +155,7 @@ class Cstatscheck(Star):
             if qid != request_data.qq_id
         ]
         match_data = await self.plugin_logic.process_json(
-            match_stats, match_id, player_send, teammate_of_send
+            match_stats, match_round, match_id, player_send, teammate_of_send
         )
         player_send_text = await self.plugin_logic.handle_to_llm_text(
             match_data, player_send
@@ -158,7 +168,7 @@ class Cstatscheck(Star):
                     {"role": "user", "content": f"{player_send_text}"},
                     {"role": "cs战绩短评官", "content": "评价为这把睡了，但睡得不深"},
                 ],
-                system_prompt="你需要对上面的cs战绩进行一个简短的评价，不超过二十个字，rating 和 adr 是这局表现的重要参考因素，rating 和 adr 很高(1.2raing以上或者90ADR以上，越高越强，夸得越凶)但是输了可以用悲情英雄、尽力局、拉满了、燃成灰了、一绿带四红来形容，打得好赢了可以用大哥、带飞等来形容，打得菜(0.8rating以下或者50ADR以下，越低越菜，骂得越狠)可以用美美隐身、这把睡了、摊子、fvv、玩家名称中选一部分+出(比如玩家名称叫玩机器，就可以称为 玩出) 作为称呼来形容，如果战绩一般就正常评价吧，但是请注意，不要只是简单地采用上面的短语，要在上面的短语基础上增添内容，可以经常在句首加上“评价为”，菜的时候就刻薄一点，带点黑色幽默那种，强的时候该夸就夸，不要太夸张地夸",
+                system_prompt="你需要对上面的cs战绩进行一个简短的评价，不超过二十个字，rating 和 adr 是这局表现的重要参考因素，rating 和 adr 很高(1.2raing以上或者90ADR以上，越高越强，夸得越凶)但是输了可以用悲情英雄、尽力局、拉满了、燃成灰了、一绿带四红来形容，打得好赢了可以用大哥、带飞等来形容，打得菜(0.8rating以下或者50ADR以下，越低越菜，骂得越狠)可以用美美隐身、这把睡了、摊子、fvv、玩家名称中选一部分+出(比如玩家名称叫玩机器，就可以称为 玩出，请注意要根据玩家名称来，不要忽视玩家名称直接套用玩出) 作为称呼来形容，如果战绩一般就正常评价吧，但是请注意，不要只是简单地采用上面的短语，要在上面的短语基础上增添内容，可以经常在句首加上“评价为”，菜的时候就刻薄一点，带点黑色幽默那种，强的时候该夸就夸，不要太夸张地夸",
             )
             logger.info(llm_resp)
             send_text = f"{player_send_text}\n{llm_resp.completion_text}"
@@ -197,3 +207,19 @@ class Cstatscheck(Star):
 
     async def terminate(self):
         """可选择实现异步的插件销毁方法，当插件被卸载/停用时会调用。"""
+        logger.info("cstatscheck 插件正在卸载，开始清理后台任务...")
+
+        # 关闭 session
+        if self._session:
+            await self._session.close()
+
+        # 清理 data_dir 下的所有文件
+        if self.data_dir and self.data_dir.exists():
+            try:
+                # 删除整个目录及其内容
+                shutil.rmtree(self.data_dir)
+                logger.info(f"已删除数据目录: {self.data_dir}")
+            except Exception as e:
+                logger.error(f"删除数据目录时出错: {e}")
+
+        logger.info("cstatscheck 插件已卸载，所有状态已清空。")

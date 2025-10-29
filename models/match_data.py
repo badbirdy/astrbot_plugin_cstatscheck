@@ -19,6 +19,7 @@ class PlayerStats:
 
 @dataclass
 class MatchData:
+    match_round: int
     map: str
     start_time: int # Unix 时间戳 timestamp
     end_time: int

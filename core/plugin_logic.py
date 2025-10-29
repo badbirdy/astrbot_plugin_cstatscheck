@@ -171,7 +171,7 @@ class CstatsCheckPluginLogic:
 
     @retry(stop=stop_after_attempt(3), wait=wait_fixed(1))  # 重试3次，每次间隔2秒
     async def get_match_id(
-        self, session: aiohttp.ClientSession, request_data: PlayerDataRequest
+        self, session: aiohttp.ClientSession, request_data: PlayerDataRequest, match_round
     ):
         """根据 uuid 获取最近一把比赛的 match_id"""
         get_url = f"https://gate.5eplay.com/crane/http/api/data/player_match?uuid={request_data.uuid}"
@@ -195,7 +195,7 @@ class CstatsCheckPluginLogic:
             data = await resp.json()
             match_list = data.get("data", {}).get("match_data", [])
             if match_list:
-                return match_list[0].get("match_id")
+                return match_list[match_round - 1].get("match_id")
             return None
 
     @retry(stop=stop_after_attempt(3), wait=wait_fixed(1))  # 重试3次，每次间隔1秒
@@ -225,6 +225,7 @@ class CstatsCheckPluginLogic:
     async def process_json(
         self,
         json_data,
+        match_round,
         match_id,
         player_send,
         teammate_of_send: list[str] | None = None,
@@ -244,6 +245,7 @@ class CstatsCheckPluginLogic:
         players_stats = group_1 + group_2
         players_to_find = [player_send] + (teammate_of_send if teammate_of_send else [])
         match_data = MatchData(
+            match_round=match_round,
             map=match_map,
             start_time=start_time,
             end_time=end_time,
