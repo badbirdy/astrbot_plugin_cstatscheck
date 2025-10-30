@@ -75,7 +75,7 @@ class Cstatscheck(Star):
             f"成功添加用户 {request_data.user_name} 对应玩家 {request_data.player_name} 。"
         )
 
-    @filter.command("match", alias={"战绩", "获取战绩"})
+    @filter.command("match", alias={"战绩", "查询战绩"})
     async def fetch_match_stats(self, event: AstrMessageEvent):
         """响应用户获取战绩请求，读取存储的玩家数据并获取战绩信息"""
         (

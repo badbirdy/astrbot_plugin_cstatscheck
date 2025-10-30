@@ -1,5 +1,5 @@
 name: cstatcheck # 这是你的插件的唯一识别名。
-desc: 这是一个能查询 cs 战绩的插件，并找到你那个最菜的组排队友   # 插件简短描述
-version: v1.3 # 插件版本号。格式：v1.1.1 或者 v1.1
-author: badbirdy # 作者
+desc: 这是一个能查询 cs 战绩（仅支持5e平台）的插件，并让大模型评价评价你打得怎么样   # 插件简短描述
+version: v1.0 # 插件版本号。格式：v1.1.1 或者 v1.1
+author: bdbd2yy # 作者
 repo: https://github.com/badbirdy/cstatcheck # 插件的仓库地址
