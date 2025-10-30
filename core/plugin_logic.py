@@ -80,33 +80,31 @@ class CstatsCheckPluginLogic:
         error_msg = None
 
         match_round = 1
-        try:
-            msg_chain = event.get_messages()
-            if len(msg_chain) == 1:
-                match = re.search(r"\b(\d+)\b", msg_chain[0].toString())
-                if match:
-                    match_round = int(match.group(1))
-                qq_id = event.get_sender_id()
-            else:
-                for comp in msg_chain[1:]:
-                    if comp.type == ComponentType.At:
-                        com_dic = comp.toDict()
-                        qq_id = com_dic.get("data", {}).get("qq")
-                    if comp.type == ComponentType.Plain:
-                        match = re.search(r"\b(\d+)\b", comp.toString())
-                        if match:
-                            match_round = int(match.group(1))
-            with open(self.user_data_file, "r", encoding="utf-8") as f:
-                user_data = json.load(f)
-            if qq_id not in user_data:
-                error_msg = f"用户 {qq_id} 未添加数据，请先添加游戏ID"
-            else:
-                playername = user_data[qq_id]["name"]
-            player_info = user_data[qq_id]
-            # 更新 request_data.uuid
-            uuid = player_info.get("uuid")
-        except Exception as e:
-            error_msg = str(e)
+
+        msg_chain = event.get_messages()
+        if len(msg_chain) == 1:
+            match = re.search(r"\b(\d+)\b", msg_chain[0].toString())
+            if match:
+                match_round = int(match.group(1))
+            qq_id = event.get_sender_id()
+        else:
+            for comp in msg_chain[1:]:
+                if comp.type == ComponentType.At:
+                    com_dic = comp.toDict()
+                    qq_id = com_dic.get("data", {}).get("qq")
+                if comp.type == ComponentType.Plain:
+                    match = re.search(r"\b(\d+)\b", comp.toString())
+                    if match:
+                        match_round = int(match.group(1))
+        with open(self.user_data_file, "r", encoding="utf-8") as f:
+            user_data = json.load(f)
+        if qq_id not in user_data:
+            error_msg = f"用户 {qq_id} 未添加数据，请先添加游戏ID"
+        else:
+            playername = user_data[qq_id]["name"]
+        player_info = user_data[qq_id]
+        # 更新 request_data.uuid
+        uuid = player_info.get("uuid")
 
         return PlayerDataRequest(
             message_str=message_str,
@@ -182,10 +180,14 @@ class CstatsCheckPluginLogic:
         params = {"keywords": request_data.player_name}
 
         async with session.get(url, headers=headers, params=params) as resp:
-            if resp.status != 200:
-                print(f"获取domain失败：HTTP {resp.status}，请稍后重试")
-                request_data.error_msg = f"获取domain失败：HTTP {resp.status}"
-                return None
+            try:
+                resp.raise_for_status()
+            except Exception as e:
+                logger.error(f"获取domain失败：HTTP {resp.status}，错误：{e}")
+                request_data.error_msg = (
+                    f"获取domain失败：HTTP {resp.status}，错误：{e}"
+                )
+                return
             data = await resp.json()
 
             users = data.get("data", {}).get("user", {}).get("list", [])
@@ -193,6 +195,7 @@ class CstatsCheckPluginLogic:
                 if u.get("username") == request_data.player_name:
                     request_data.domain = u.get("domain")
                     if not request_data.domain:
+                        logger.error("获取domain失败，服务器返回数据错误")
                         request_data.error_msg = "获取domain失败，服务器返回数据错误"
                     return
             return
@@ -210,24 +213,22 @@ class CstatsCheckPluginLogic:
             "Accept": "*/*",
             "Accept-Language": "zh-cn",
             "Content-Type": "application/json",
-            "x-ca-key": "5eplay",
-            "x-ca-signature-method": "HmacSHA256",
-            "x-ca-signature": "CJNeR4KLRxYAB1Ifb/muzBxy4SkMNhLARwfx7ILtHRY=",
-            "x-ca-signature-headers": "Accept-Language,Authorization",
             "Origin": "https://arena-next.5eplaycdn.com",
             "Referer": "https://arena-next.5eplaycdn.com/",
         }
         post_data = {"trans": {"domain": request_data.domain}}
 
         async with session.post(post_url, json=post_data, headers=post_headers) as resp:
-            if resp.status != 200:
-                print(f"获取uuid失败：HTTP {resp.status}，请稍后重试")
-                request_data.error_msg = f"获取uuid失败：HTTP {resp.status}"
+            try:
+                resp.raise_for_status()
+            except Exception as e:
+                logger.error(f"获取uuid失败：HTTP {resp.status}，错误：{e}")
+                request_data.error_msg = f"获取uuid失败：HTTP {resp.status}，错误：{e}"
                 return
-            resp.raise_for_status()
             data = await resp.json()
             uuid = data.get("data", {}).get("uuid")
             if not uuid:
+                logger.error("获取uuid失败，服务器返回数据错误")
                 request_data.error_msg = "获取uuid失败，服务器返回数据错误"
             else:
                 request_data.uuid = uuid
@@ -247,24 +248,27 @@ class CstatsCheckPluginLogic:
             "Accept": "*/*",
             "Accept-Language": "zh-cn",
             "Authorization": "",
-            "x-ca-key": "5eplay",
             "Host": "gate.5eplay.com",
-            "x-ca-signature-method": "HmacSHA256",
-            "x-ca-signature": "8rrdm62A4ISHZDa9tBxXdMyVqA6xdUy5idiO4+4NTIc=",
-            "x-ca-signature-headers": "Accept-Language,Authorization",
             "Origin": "https://arena-next.5eplaycdn.com",
             "Referer": "https://arena-next.5eplaycdn.com/",
             "TE": "trailers",
         }
 
         async with session.get(get_url, headers=get_headers) as resp:
-            resp.raise_for_status()
+            try:
+                resp.raise_for_status()
+            except Exception as e:
+                logger.error(f"获取match_id失败：HTTP {resp.status}，错误：{e}")
+                request_data.error_msg = (
+                    f"获取match_id失败：HTTP {resp.status}，错误：{e}"
+                )
+                return
             data = await resp.json()
             match_list = data.get("data", {}).get("match_data", [])
             if match_list:
                 match_id = match_list[match_round - 1].get("match_id")
                 if not match_id:
-                    logger.info(
+                    logger.error(
                         f"获取玩家 {request_data.player_name} 的{match_round * '上'}比赛的match_id失败"
                     )
                     request_data.error_msg = f"获取玩家 {request_data.player_name} 的{match_round * '上'}比赛的数据失败，请稍后重试"
@@ -272,7 +276,9 @@ class CstatsCheckPluginLogic:
             return None
 
     @retry(stop=stop_after_attempt(3), wait=wait_fixed(1))  # 重试3次，每次间隔1秒
-    async def get_match_stats(self, session: aiohttp.ClientSession, match_id):
+    async def get_match_stats(
+        self, session: aiohttp.ClientSession, match_id, request_data: PlayerDataRequest
+    ):
         """根据 match_id 获取比赛数据"""
         get_url = f"https://gate.5eplay.com/crane/http/api/data/match/{match_id}"
         get_headers = {
@@ -291,7 +297,12 @@ class CstatsCheckPluginLogic:
         }
 
         async with session.get(get_url, headers=get_headers) as resp:
-            resp.raise_for_status()
+            try:
+                resp.raise_for_status()
+            except Exception as e:
+                logger.error(f"获取uuid失败：HTTP {resp.status}，错误：{e}")
+                request_data.error_msg = f"获取uuid失败：HTTP {resp.status}，错误：{e}"
+                return
             data = await resp.json()
             return data.get("data", {})
 
@@ -337,11 +348,6 @@ class CstatsCheckPluginLogic:
                 )
                 player_data = self._extract_player_data(player_stats, player_to_find)
                 match_data.player_stats[player_data.playername] = player_data
-        # if len(players) == 1:
-        #     noobname, noobdata = "", {}
-        # else:
-        #     noobname, noobdata = min(player_data.items(), key=lambda x: x[1]["rating"])
-
         return match_data
 
     async def handle_to_llm_text(
@@ -395,7 +401,5 @@ class CstatsCheckPluginLogic:
             with open(self.user_data_file, "r", encoding="utf-8") as f:
                 player_data = json.load(f)
             if username in player_data and player_data[username]["name"] == playername:
-                return error_msg
-            else:
                 error_msg = f"用户 {username} 已添加玩家 {playername} 的数据。"
         return error_msg
