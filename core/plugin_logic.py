@@ -13,6 +13,10 @@ from astrbot.api.event import AstrMessageEvent
 from astrbot.core.message.components import ComponentType
 from ..models.player_data import PlayerDataRequest
 from ..models.match_data import PlayerStats, MatchData
+from pathlib import Path
+
+PROMPT_PATH = Path(__file__).parent / "prompts" / "cs_comment_prompt.txt"
+_LLM_SYSTEM_PROMPT = PROMPT_PATH.read_text(encoding="utf-8")
 
 
 class CstatsCheckPluginLogic:
@@ -48,7 +52,7 @@ class CstatsCheckPluginLogic:
         if playername is None:
             error_msg = "玩家名称未成功识别，请检查命令输入"
         else:
-            error_msg = await self._user_is_added(username, playername)
+            error_msg = await self._user_is_added(qq_id, playername)
 
         return PlayerDataRequest(
             message_str=message_str,
@@ -82,27 +86,21 @@ class CstatsCheckPluginLogic:
         match_round = 1
 
         msg_chain = event.get_messages()
-        if len(msg_chain) == 1:
-            match = re.search(r"\b(\d+)\b", msg_chain[0].toString())
-            if match:
-                match_round = int(match.group(1))
-            qq_id = event.get_sender_id()
-        else:
-            for comp in msg_chain[1:]:
-                if comp.type == ComponentType.At:
-                    com_dic = comp.toDict()
-                    qq_id = com_dic.get("data", {}).get("qq")
-                if comp.type == ComponentType.Plain:
-                    match = re.search(r"\b(\d+)\b", comp.toString())
-                    if match:
-                        match_round = int(match.group(1))
+        for comp in msg_chain:
+            if comp.type == ComponentType.At:
+                com_dic = comp.toDict()
+                qq_id = com_dic.get("data", {}).get("qq")
+            if comp.type == ComponentType.Plain:
+                match = re.search(r"\b(\d+)\b", comp.toString())
+                if match:
+                    match_round = int(match.group(1))
         with open(self.user_data_file, "r", encoding="utf-8") as f:
             user_data = json.load(f)
         if qq_id not in user_data:
             error_msg = f"用户 {qq_id} 未添加数据，请先添加游戏ID"
         else:
-            playername = user_data[qq_id]["name"]
-        player_info = user_data[qq_id]
+            playername = user_data.get(qq_id, {}).get("name")
+        player_info = user_data.get(qq_id)
         # 更新 request_data.uuid
         uuid = player_info.get("uuid")
 
@@ -149,7 +147,7 @@ class CstatsCheckPluginLogic:
                         "content": "评价为薛定谔的哥本哈出，裤子里全是尿，没有一滴汗",
                     },
                 ],
-                system_prompt="你需要对上面的cs战绩结合比赛结果和个人表现进行一个简短的评价，不超过二十个字，整体风格是黑色幽默那种，rating 和 adr 是这局表现的重要参考因素，rating 和 adr 很高(1.2raing以上或者90ADR以上，越高越强，夸得越凶)但是输了可以用悲情英雄、尽力局、拉满了、燃成灰了、一绿带四红来形容，打得好赢了可以用明星哥、个人英雄主义、大哥、数值拉满了、带飞等来形容，打得菜(0.8rating以下或者50ADR以下，越低越菜，骂得越狠)可以用美美隐身、这把睡了、摊子、不像人类、尿完了、裤子里全是尿，没有一滴汗、fvv、bot、玩家名称中选一部分+出(比如玩家名称叫玩机器，就可以称为 玩出，请注意要根据玩家名称来，不要忽视玩家名称直接套用玩出) 作为称呼来形容，如果战绩一般就正常评价吧，但是请注意，不要只是简单地采用上面的短语，要在上面的短语基础上增添内容，可以经常在句首加上“评价为”，但是不用在后面跟上冒号这类标点，菜的时候就刻薄一点，强的时候用不夸张的话夸，可以向上下文中的cs战绩短评官的评价进行学习，注意最后的评价内容要善于变化，不要说来说去都是那几句话，还要注意 5eplayer 只是展示平台，和玩家名称无关，评价的时候不要出现5eplayer",
+                system_prompt=_LLM_SYSTEM_PROMPT,
             )
             logger.info(llm_resp)
             return llm_resp.completion_text
@@ -319,10 +317,10 @@ class CstatsCheckPluginLogic:
         # 这里根据实际的 json 结构提取所需信息
         error_msg = None
         basic_info = json_data.get("main", {})
-        match_map = basic_info["map_desc"]
-        start_time = basic_info["start_time"]
-        end_time = basic_info["end_time"]
-        mvp_uid = basic_info["mvp_uid"]
+        match_map = basic_info.get("map_desc", "未知地图")
+        start_time = basic_info.get("start_time", 0)
+        end_time = basic_info.get("end_time", 0)
+        mvp_uid = basic_info.get("mvp_uid", "unknown")
         group_1 = json_data.get("group_1", [])
         group_2 = json_data.get("group_2", [])
         players_stats = group_1 + group_2
@@ -354,12 +352,16 @@ class CstatsCheckPluginLogic:
         self, match_data: MatchData, player_send: Union[str, None]
     ) -> str:
         "生成llm将要进行评价的战绩text"
-        player_stats = match_data.player_stats[f"{player_send}"]
-        if player_stats.win == 1:
-            match_result = "胜利"
-        else:
-            match_result = "失败"
-        text = f"5eplayer {player_stats.playername} 的{'上' * match_data.match_round}把比赛战绩:\n比赛时间: {match_data.start_datetime}   比赛时长: {match_data.duration}min\nMap: {match_data.map} 比赛结果: {match_result} \nElo变化: {player_stats.elo_change}\nkd: {player_stats.kill}-{player_stats.death}\nrating: {player_stats.rating}\nadr: {player_stats.adr}\n爆头率: {player_stats.headshot_rate * 100:.2f}% "
+        player_stats = match_data.player_stats.get(f"{player_send}")
+        text = ""
+        if player_stats:
+            if player_stats.win == 1:
+                match_result = "胜利"
+            else:
+                match_result = "失败"
+            text = f"5eplayer {player_stats.playername} 的{'上' * match_data.match_round}把比赛战绩:\n比赛时间: {match_data.start_datetime}   比赛时长: {match_data.duration}min\nMap: {match_data.map} 比赛结果: {match_result} \nElo变化: {player_stats.elo_change}\nkd: {player_stats.kill}-{player_stats.death}\nrating: {player_stats.rating}\nadr: {player_stats.adr}\n爆头率: {player_stats.headshot_rate * 100:.2f}% "
+        if not text:
+            match_data.error_msg = "生成评价战绩错误"
         return text
 
     @staticmethod
@@ -394,12 +396,12 @@ class CstatsCheckPluginLogic:
             headshot_rate=headshot_rate,
         )
 
-    async def _user_is_added(self, username: str, playername: str) -> Union[str, None]:
+    async def _user_is_added(self, qq_id: str, playername: str) -> Union[str, None]:
         """检查用户是否已添加玩家数据"""
         error_msg = None
         if self.user_data_file.exists():
             with open(self.user_data_file, "r", encoding="utf-8") as f:
                 player_data = json.load(f)
-            if username in player_data and player_data[username]["name"] == playername:
-                error_msg = f"用户 {username} 已添加玩家 {playername} 的数据。"
+            if qq_id in player_data and player_data[qq_id]["name"] == playername:
+                error_msg = f"用户 {qq_id} 已添加玩家 {playername} 的数据。"
         return error_msg

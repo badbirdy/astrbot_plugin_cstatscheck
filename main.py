@@ -113,6 +113,9 @@ class Cstatscheck(Star):
         stats_text = await self.plugin_logic.handle_to_llm_text(
             match_data, request_data.player_name
         )
+        if match_data.error_msg:
+            logger.error(f"{match_data.error_msg}")
+            return
         rsp_text = await self.plugin_logic.call_llm_to_generate_evaluation(
             event, self.context, stats_text
         )
