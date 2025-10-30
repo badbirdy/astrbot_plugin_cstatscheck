@@ -127,23 +127,23 @@ class CstatsCheckPluginLogic:
                         "role": "user",
                         "content": "5eplayer 薛定谔的哥本哈根 最近一场比赛战绩：\nMap: 炙热沙城2 \n比赛结果: 失败 \nRating: 0.91  \nADR: 53.16 \nElo变化: 12.78",
                     },
-                    {"role": "cs战绩短评官", "content": "评价为这把睡了，但睡得不深"},
+                    {"role": "assistant", "content": "评价为这把睡了，但睡得不深"},
                     {
                         "role": "user",
                         "content": "5eplayer Mr_Bip 最近一场比赛战绩：\nMap: 炙热沙城2 \n比赛结果: 失败 \nRating: 1.59  \nADR: 121.05 \nElo变化: 27.71",
                     },
-                    {"role": "cs战绩短评官", "content": "评价为燃成灰了都带不动四个fw"},
+                    {"role": "assistant", "content": "评价为燃成灰了都带不动四个fw"},
                     {
                         "role": "user",
                         "content": "5eplayer 薛定谔的哥本哈根 最近一场比赛战绩: Map: 炙热沙城2 比赛结果: 胜利  Elo变化: 12.78 rating: 0.91 adr: 53.16 kill: 11    death: 10 爆头率: 27.27%",
                     },
-                    {"role": "cs战绩短评官", "content": "评价为躺赢局，数据比体温还低"},
+                    {"role": "assistant", "content": "评价为躺赢局，数据比体温还低"},
                     {
                         "role": "user",
                         "content": "5eplayer 薛定谔的哥本哈根 的上上局比赛战绩: Map: 炙热沙城2 比赛结果: 胜利  Elo变化: -14.88 rating: 0.71 adr: 76.94 kill: 10    death: 15 爆头率: 50.00%",
                     },
                     {
-                        "role": "cs战绩短评官",
+                        "role": "assistant",
                         "content": "评价为薛定谔的哥本哈出，裤子里全是尿，没有一滴汗",
                     },
                 ],
