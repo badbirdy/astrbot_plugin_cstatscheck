@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Dict
+from typing import Dict, Union
 
 from datetime import datetime
 
@@ -8,7 +8,7 @@ class PlayerStats:
     playername: str
     uuid: str
     uid: str # match的json中才有的值
-    win: bool
+    win: int
     elo_change: float # 天梯分数变化
     rating: float
     adr: float
@@ -25,6 +25,7 @@ class MatchData:
     end_time: int
     player_stats: Dict[str, PlayerStats]
     mvp_uid: str
+    error_msg: Union[str, None]
 
     @property
     def start_datetime(self):

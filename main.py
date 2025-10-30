@@ -1,12 +1,9 @@
-import re
-import shutil
 import json
 import aiohttp
 from astrbot.api.event import filter, AstrMessageEvent
 from astrbot.api.star import Context, Star, register, StarTools
 from astrbot.api import logger
-from astrbot.api.message_components import Face, Plain, At
-# from astrbot.core.provider import Provider
+from astrbot.api.message_components import Plain
 
 from .core.plugin_logic import CstatsCheckPluginLogic
 
@@ -38,45 +35,22 @@ class Cstatscheck(Star):
     async def add_player_data(self, event: AstrMessageEvent):
         """响应用户添加玩家请求，并进行将玩家数据进行存储"""
 
-        request_data = await self.plugin_logic.handle_player_data_request(
-            event, ["bind", "添加", "绑定", "添加  ", "绑定用户"]
-        )
-        full_text = event.message_str.strip()
-        match = re.match(
-            r"^(?:添加用户|用户|添加玩家|玩家|添加|绑定|bind)\s*(.+)", full_text
-        )
-        # logger.info(f"match:{match} 和 full_text: {full_text}")
-        if match is not None:
-            request_data.player_name = match.groups()[0].strip()
-        request_data.user_name = event.get_sender_name()
-        request_data.qq_id = event.get_sender_id()
-        request_data.domain = None
-        request_data.uuid = None
-
-        if request_data.player_name is None:
-            logger.info("player_name 有问题")
-            return
-        if await self.plugin_logic.user_is_added(
-            request_data.user_name, request_data.player_name
-        ):
-            yield event.plain_result(
-                f"用户 {request_data.user_name} 已添加玩家 {request_data.player_name} 的数据。"
-            )
+        # 处理用户指令
+        request_data = await self.plugin_logic.handle_player_data_request_bind(event)
+        if request_data.error_msg:
+            yield event.plain_result(request_data.error_msg)
             return
 
-        request_data.domain = await self.plugin_logic.get_domain(
-            self._session, request_data
-        )
-        if not request_data.domain:
-            yield event.plain_result(
-                f"获取玩家 {request_data.player_name} 的 domain 信息失败，请稍候重试"
-            )
+        # 获取玩家 domain
+        await self.plugin_logic.get_domain(self._session, request_data)
+        if request_data.error_msg:
+            yield event.plain_result(request_data.error_msg)
             return
         # else:
         #     yield event.plain_result(f"成功获取到 domain: {request_data.domain}")
-        request_data.uuid = await self.plugin_logic.get_uuid(
-            self._session, request_data
-        )
+
+        # 获取玩家 uuid
+        await self.plugin_logic.get_uuid(self._session, request_data)
         if not request_data.uuid:
             yield event.plain_result(
                 f"获取玩家 {request_data.player_name} 的 uuid 信息失败，请稍后重试"
@@ -98,91 +72,49 @@ class Cstatscheck(Star):
         with open(self.user_data_file, "w", encoding="utf-8") as f:
             json.dump(player_data, f, ensure_ascii=False, indent=4)
         yield event.plain_result(
-            f"成功添加用户 {request_data.user_name} 对应的玩家 {request_data.player_name} 数据。"
+            f"成功添加用户 {request_data.user_name} 对应玩家 {request_data.player_name} 。"
         )
 
     @filter.command("match", alias={"战绩", "获取战绩"})
     async def fetch_match_stats(self, event: AstrMessageEvent):
         """响应用户获取战绩请求，读取存储的玩家数据并获取战绩信息"""
-        request_data = await self.plugin_logic.handle_player_data_request(
-            event, ["match"]
+        (
+            request_data,
+            match_round,
+        ) = await self.plugin_logic.handle_player_data_request_match(event)
+        match_id = await self.plugin_logic.get_match_id(
+            self._session, request_data, match_round
         )
-        msg_chain = event.get_messages()
-        match_round = 1
-        if len(msg_chain) == 1:
-            match = re.search(r"\b(\d+)\b", msg_chain[0].toString())
-            if match:
-                match_round = int(match.group(1))
-            request_data.qq_id = event.get_sender_id()
-        else:
-            for comp in msg_chain[1:]:
-                if comp.type == ComponentType.At:
-                    com_dic = comp.toDict()
-                    request_data.qq_id = com_dic.get("data", {}).get("qq")
-                if comp.type == ComponentType.Plain:
-                    match = re.search(r"\b(\d+)\b", comp.toString())
-                    if match:
-                        match_round = int(match.group(1))
-        with open(self.user_data_file, "r", encoding="utf-8") as f:
-            player_data = json.load(f)
-        if request_data.qq_id not in player_data:
-            yield event.plain_result(f"用户 {request_data.qq_id} 未添加数据，请先添加游戏ID")
-            return
-        else:
-            sender_playername = player_data[request_data.qq_id]["name"]
-        player_info = player_data[request_data.qq_id]
-        # 更新 request_data.uuid
-        request_data.uuid = player_info.get("uuid")
-        match_id = await self.plugin_logic.get_match_id(self._session, request_data, match_round)
         if not match_id:
-            yield event.plain_result(
-                f"未找到玩家 {player_info.get('name')} 的最近比赛信息。"
-            )
+            yield event.plain_result(f"{request_data.error_msg}")
             return
         # else:
         #     yield event.plain_result(f"玩家 {player_info.get('name')} 最近的一场比赛 ID: {match_id}")
-        match_stats = await self.plugin_logic.get_match_stats(self._session, match_id)
-        if not match_stats:
-            yield event.plain_result(f"未能获取比赛 {match_id} 的详细数据。")
+        match_stats_json = await self.plugin_logic.get_match_stats(
+            self._session, match_id
+        )
+        if not match_stats_json:
+            logger.info(f"未能获取比赛 {match_id} 的详细数据。")
+            yield event.plain_result(
+                f"获取{match_round * '上'}把比赛的详细数据失败 (match_id={match_id}) "
+            )
             return
         # else:
         #     yield event.plain_result(f"成功获取比赛 {match_id} 的详细数据。")
 
-        # 这里其实需要获取群聊中其他玩家的名字来加载 teammate_of_send
-        teammate_of_send = [
-            pinfo["name"]
-            for qid, pinfo in player_data.items()
-            if qid != request_data.qq_id
-        ]
         match_data = await self.plugin_logic.process_json(
-            match_stats, match_round, match_id, sender_playername, teammate_of_send
+            match_stats_json,
+            match_round,
+            request_data.player_name,
         )
         stats_text = await self.plugin_logic.handle_to_llm_text(
-            match_data, sender_playername
+            match_data, request_data.player_name
         )
-        prov = self.context.get_using_provider(umo=event.unified_msg_origin)
-        if prov:
-            llm_resp = await prov.text_chat(
-                prompt=f"{stats_text}",
-                context=[
-                    {"role": "user", "content": "5eplayer 薛定谔的哥本哈根 最近一场比赛战绩：\nMap: 炙热沙城2 \n比赛结果: 失败 \nRating: 0.91  \nADR: 53.16 \nElo变化: 12.78"},
-                    {"role": "cs战绩短评官", "content": "评价为这把睡了，但睡得不深"},
-
-                    {"role": "user", "content": "5eplayer Mr_Bip 最近一场比赛战绩：\nMap: 炙热沙城2 \n比赛结果: 失败 \nRating: 1.59  \nADR: 121.05 \nElo变化: 27.71"},
-                    {"role": "cs战绩短评官", "content": "评价为燃成灰了都带不动四个fw"},
-
-                    {"role": "user", "content": "5eplayer 薛定谔的哥本哈根 最近一场比赛战绩: Map: 炙热沙城2 比赛结果: 胜利  Elo变化: 12.78 rating: 0.91 adr: 53.16 kill: 11    death: 10 爆头率: 27.27%"},
-                    {"role": "cs战绩短评官", "content": "评价为躺赢局，数据比体温还低"},
-
-                    {"role": "user", "content": "5eplayer 薛定谔的哥本哈根 的上上局比赛战绩: Map: 炙热沙城2 比赛结果: 胜利  Elo变化: -14.88 rating: 0.71 adr: 76.94 kill: 10    death: 15 爆头率: 50.00%"},
-                    {"role": "cs战绩短评官", "content": "评价为薛定谔的哥本哈出，裤子里全是尿，没有一滴汗"},
-
-                ],
-                system_prompt="你需要对上面的cs战绩进行一个简短的评价，不超过二十个字，rating 和 adr 是这局表现的重要参考因素，rating 和 adr 很高(1.2raing以上或者90ADR以上，越高越强，夸得越凶)但是输了可以用悲情英雄、尽力局、拉满了、燃成灰了、一绿带四红来形容，打得好赢了可以用明星哥、个人英雄主义、大哥、数值拉满了、带飞等来形容，打得菜(0.8rating以下或者50ADR以下，越低越菜，骂得越狠)可以用美美隐身、这把睡了、摊子、不像人类、尿完了、裤子里全是尿，没有一滴汗、fvv、玩家名称中选一部分+出(比如玩家名称叫玩机器，就可以称为 玩出，请注意要根据玩家名称来，不要忽视玩家名称直接套用玩出) 作为称呼来形容，如果战绩一般就正常评价吧，但是请注意，不要只是简单地采用上面的短语，要在上面的短语基础上增添内容，可以经常在句首加上“评价为”，但是不用在后面跟上冒号这类标点，菜的时候就刻薄一点，带点平常语气说出搞笑评价、黑色幽默那种，强的时候该夸就夸，不要太夸张地夸",
-            )
-            logger.info(llm_resp)
-            send_text = f"{stats_text}\n{llm_resp.completion_text}"
-            yield event.chain_result([Plain(send_text)])
+        rsp_text = self.plugin_logic.call_llm_to_generate_evaluation(
+            event, self.context, stats_text
+        )
+        send_text = f"{stats_text}\n{rsp_text}"
+        yield event.chain_result([Plain(send_text)])
 
     @filter.command("调试")
     @filter.permission_type(filter.PermissionType.ADMIN)
@@ -222,14 +154,4 @@ class Cstatscheck(Star):
         logger.info("cstatscheck 插件正在卸载，开始清理后台任务...")
         if self._session:
             await self._session.close()
-
-        # 清理 data_dir 下的所有文件
-        if self.data_dir and self.data_dir.exists():
-            try:
-                # 删除整个目录及其内容
-                shutil.rmtree(self.data_dir)
-                logger.info(f"已删除数据目录: {self.data_dir}")
-            except Exception as e:
-                logger.error(f"删除数据目录时出错: {e}")
-
         logger.info("cstatscheck 插件已卸载，所有状态已清空。")
