@@ -100,9 +100,9 @@ class CstatsCheckPluginLogic:
             error_msg = f"用户 {qq_id} 未添加数据，请先添加游戏ID"
         else:
             playername = user_data.get(qq_id, {}).get("name")
-        player_info = user_data.get(qq_id)
+            player_info = user_data.get(qq_id)
+            uuid = player_info.get("uuid")
         # 更新 request_data.uuid
-        uuid = player_info.get("uuid")
 
         return PlayerDataRequest(
             message_str=message_str,

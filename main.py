@@ -83,20 +83,25 @@ class Cstatscheck(Star):
             request_data,
             match_round,
         ) = await self.plugin_logic.handle_player_data_request_match(event)
+        if request_data.error_msg:
+            logger.error(f"{request_data.error_msg}")
+            yield event.plain_result(f"{request_data.error_msg}")
+            return
         match_id = await self.plugin_logic.get_match_id(
             self._session, request_data, match_round
         )
-        logger.info(f"查询到match_id:{match_id}")
         if not match_id:
+            logger.error(f"{request_data.error_msg}")
             yield event.plain_result(f"{request_data.error_msg}")
             return
+        logger.info(f"查询到match_id:{match_id}")
         # else:
         #     yield event.plain_result(f"玩家 {player_info.get('name')} 最近的一场比赛 ID: {match_id}")
         match_stats_json = await self.plugin_logic.get_match_stats(
             self._session, match_id, request_data
         )
         if not match_stats_json:
-            logger.info(f"未能获取比赛 {match_id} 的详细数据。")
+            logger.error(f"未能获取比赛 {match_id} 的详细数据。")
             yield event.plain_result(
                 f"获取{match_round * '上'}把比赛的详细数据失败 (match_id={match_id}) "
             )
