@@ -89,7 +89,7 @@ class CstatsCheckPluginLogic:
         for comp in msg_chain:
             if comp.type == ComponentType.At:
                 com_dic = comp.toDict()
-                qq_id = com_dic.get("data", {}).get("qq")
+                qq_id = com_dic.get("data", {}).get("qq", "")
             if comp.type == ComponentType.Plain:
                 match = re.search(r"\b(\d+)\b", comp.toString())
                 if match:
@@ -97,11 +97,11 @@ class CstatsCheckPluginLogic:
         with open(self.user_data_file, "r", encoding="utf-8") as f:
             user_data = json.load(f)
         if qq_id not in user_data:
-            error_msg = f"用户 {qq_id} 未添加数据，请先添加游戏ID"
+            error_msg = f"用户 {username} 未添加数据，请先添加游戏ID"
         else:
-            playername = user_data.get(qq_id, {}).get("name")
-            player_info = user_data.get(qq_id)
-            uuid = player_info.get("uuid")
+            player_info = user_data.get(qq_id, {})
+            playername = player_info.get("name", "")
+            uuid = player_info.get("uuid", "")
         # 更新 request_data.uuid
 
         return PlayerDataRequest(
@@ -183,7 +183,7 @@ class CstatsCheckPluginLogic:
             except Exception as e:
                 logger.error(f"获取domain失败：HTTP {resp.status}，错误：{e}")
                 request_data.error_msg = (
-                    f"获取domain失败：HTTP {resp.status}，错误：{e}"
+                    f"绑定用户失败，请检查网络后重试"
                 )
                 return
             data = await resp.json()
@@ -191,11 +191,11 @@ class CstatsCheckPluginLogic:
             users = data.get("data", {}).get("user", {}).get("list", [])
             for u in users:
                 if u.get("username") == request_data.player_name:
-                    request_data.domain = u.get("domain")
-                    if not request_data.domain:
-                        logger.error("获取domain失败，服务器返回数据错误")
-                        request_data.error_msg = "获取domain失败，服务器返回数据错误"
-                    return
+                    request_data.domain = u.get("domain", "")
+            if not request_data.domain:
+                logger.error("获取domain失败，请检查用户ID是否输入正确")
+                request_data.error_msg = "绑定用户失败，请检查用户ID是否输入正确"
+                return
             return
 
     @retry(stop=stop_after_attempt(3), wait=wait_fixed(1))  # 重试3次，每次间隔2秒
@@ -221,13 +221,13 @@ class CstatsCheckPluginLogic:
                 resp.raise_for_status()
             except Exception as e:
                 logger.error(f"获取uuid失败：HTTP {resp.status}，错误：{e}")
-                request_data.error_msg = f"获取uuid失败：HTTP {resp.status}，错误：{e}"
+                request_data.error_msg = f"绑定用户失败，请检查网络后重试"
                 return
             data = await resp.json()
-            uuid = data.get("data", {}).get("uuid")
+            uuid = data.get("data", {}).get("uuid", "")
             if not uuid:
                 logger.error("获取uuid失败，服务器返回数据错误")
-                request_data.error_msg = "获取uuid失败，服务器返回数据错误"
+                request_data.error_msg = "绑定用户失败，请检查用户ID是否输入正确"
             else:
                 request_data.uuid = uuid
             return
@@ -258,13 +258,13 @@ class CstatsCheckPluginLogic:
             except Exception as e:
                 logger.error(f"获取match_id失败：HTTP {resp.status}，错误：{e}")
                 request_data.error_msg = (
-                    f"获取match_id失败：HTTP {resp.status}，错误：{e}"
+                    f"查询比赛数据失败，请检查网络后重试"
                 )
                 return
             data = await resp.json()
             match_list = data.get("data", {}).get("match_data", [])
             if match_list:
-                match_id = match_list[match_round - 1].get("match_id")
+                match_id = match_list[match_round - 1].get("match_id", "")
                 if not match_id:
                     logger.error(
                         f"获取玩家 {request_data.player_name} 的{match_round * '上'}比赛的match_id失败"
@@ -298,11 +298,14 @@ class CstatsCheckPluginLogic:
             try:
                 resp.raise_for_status()
             except Exception as e:
-                logger.error(f"获取uuid失败：HTTP {resp.status}，错误：{e}")
-                request_data.error_msg = f"获取uuid失败：HTTP {resp.status}，错误：{e}"
+                logger.error(f"获取match_stats失败：HTTP {resp.status}，错误：{e}")
+                request_data.error_msg = "获取比赛数据失败，请检查网络后重试"
                 return
             data = await resp.json()
-            return data.get("data", {})
+            data = data.get("data", {})
+            if not data:
+                request_data.error_msg = f"获取比赛的详细数据失败 (match_id={match_id}) "
+            return data
 
     async def process_json(
         self,
@@ -320,7 +323,7 @@ class CstatsCheckPluginLogic:
         match_map = basic_info.get("map_desc", "未知地图")
         start_time = basic_info.get("start_time", 0)
         end_time = basic_info.get("end_time", 0)
-        mvp_uid = basic_info.get("mvp_uid", "unknown")
+        mvp_uid = basic_info.get("mvp_uid", "")
         group_1 = json_data.get("group_1", [])
         group_2 = json_data.get("group_2", [])
         players_stats = group_1 + group_2
@@ -336,13 +339,13 @@ class CstatsCheckPluginLogic:
         )
         for player_stats in players_stats:
             if (
-                player_stats.get("user_info", {}).get("user_data", {}).get("username")
+                player_stats.get("user_info", {}).get("user_data", {}).get("username", "")
                 in players_to_find
             ):
                 player_to_find = (
                     player_stats.get("user_info", {})
                     .get("user_data", {})
-                    .get("username")
+                    .get("username", "")
                 )
                 player_data = self._extract_player_data(player_stats, player_to_find)
                 match_data.player_stats[player_data.playername] = player_data
@@ -352,14 +355,16 @@ class CstatsCheckPluginLogic:
         self, match_data: MatchData, player_send: Union[str, None]
     ) -> str:
         "生成llm将要进行评价的战绩text"
-        player_stats = match_data.player_stats.get(f"{player_send}")
+        player_stats: PlayerStats = match_data.player_stats.get(f"{player_send}", {})
         text = ""
         if player_stats:
             if player_stats.win == 1:
                 match_result = "胜利"
+                elo_sign = "+"
             else:
                 match_result = "失败"
-            text = f"5eplayer {player_stats.playername} 的{'上' * match_data.match_round}把比赛战绩:\n比赛时间: {match_data.start_datetime}   比赛时长: {match_data.duration}min\nMap: {match_data.map} 比赛结果: {match_result} \nElo变化: {player_stats.elo_change}\nkd: {player_stats.kill}-{player_stats.death}\nrating: {player_stats.rating}\nadr: {player_stats.adr}\n爆头率: {player_stats.headshot_rate * 100:.2f}% "
+                elo_sign = "-"
+            text = f"5eplayer {player_stats.playername} 的{'上' * match_data.match_round}把比赛战绩:\n比赛时间: {match_data.start_datetime}   比赛时长: {match_data.duration}min\nMap: {match_data.map} 比赛结果: {match_result} \nElo变化: {elo_sign}{abs(player_stats.elo_change)}\nkd: {player_stats.kill}-{player_stats.death}\nrating: {player_stats.rating}\nadr: {player_stats.adr}\n爆头率: {player_stats.headshot_rate * 100:.2f}% "
         if not text:
             match_data.error_msg = "生成评价战绩错误"
         return text
@@ -367,20 +372,20 @@ class CstatsCheckPluginLogic:
     @staticmethod
     def _extract_player_data(json_data, player) -> PlayerStats:
         """提取比赛中玩家数据，返回PlayerStats"""
-        uuid = json_data.get("user_info", {}).get("user_data", {}).get("uuid")
-        uid = json_data.get("user_info", {}).get("user_data", {}).get("uid")
-        is_win = int(json_data.get("fight", {}).get("is_win"))
+        uuid = json_data.get("user_info", {}).get("user_data", {}).get("uuid", "")
+        uid = json_data.get("user_info", {}).get("user_data", {}).get("uid", "")
+        is_win = int(json_data.get("fight", {}).get("is_win", 0))
         elo_change = float(json_data.get("sts", {}).get("change_elo", 0))
-        rating = float(json_data.get("fight", {}).get("rating2"))
-        adr = float(json_data.get("fight", {}).get("adr"))
-        rws = float(json_data.get("fight", {}).get("rws"))
-        kill = int(json_data.get("fight", {}).get("kill"))
-        death = int(json_data.get("fight", {}).get("death"))
+        rating = float(json_data.get("fight", {}).get("rating2", 0.0))
+        adr = float(json_data.get("fight", {}).get("adr", 0.0))
+        rws = float(json_data.get("fight", {}).get("rws", 0.0))
+        kill = int(json_data.get("fight", {}).get("kill", 0))
+        death = int(json_data.get("fight", {}).get("death", 0))
         if kill == 0:
             headshot_rate = 0
         else:
             headshot_rate: float = (
-                int(json_data.get("fight", {}).get("headshot")) / kill
+                int(json_data.get("fight", {}).get("headshot", 1)) / kill
             )
         return PlayerStats(
             playername=player,

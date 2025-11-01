@@ -47,18 +47,22 @@ class Cstatscheck(Star):
         if request_data.error_msg:
             yield event.plain_result(request_data.error_msg)
             return
-        # else:
-        #     yield event.plain_result(f"成功获取到 domain: {request_data.domain}")
+        else:
+            logger.info(
+                f"成功获取到 {request_data.player_name} 的domain: {request_data.domain}"
+            )
 
         # 获取玩家 uuid
         await self.plugin_logic.get_uuid(self._session, request_data)
         if not request_data.uuid:
             yield event.plain_result(
-                f"获取玩家 {request_data.player_name} 的 uuid 信息失败，请稍后重试"
+                f"获取玩家 {request_data.player_name} 的 uuid 信息失败，请检查用户名是否输入正确"
             )
             return
-        # else:
-        #     yield event.plain_result(f"成功获取到 uuid: {request_data.uuid}")
+        else:
+            logger.info(
+                f"成功获取到 {request_data.player_name} 的uuid: {request_data.uuid}"
+            )
 
         # 存储玩家信息到 JSON 文件
         player_data = {}
@@ -100,11 +104,9 @@ class Cstatscheck(Star):
         match_stats_json = await self.plugin_logic.get_match_stats(
             self._session, match_id, request_data
         )
-        if not match_stats_json:
-            logger.error(f"未能获取比赛 {match_id} 的详细数据。")
-            yield event.plain_result(
-                f"获取{match_round * '上'}把比赛的详细数据失败 (match_id={match_id}) "
-            )
+        if request_data.error_msg:
+            logger.error(f"{request_data.error_msg}")
+            yield event.plain_result(f"{request_data.error_msg}")
             return
         else:
             logger.info(f"成功查询到match_id为{match_id}的详细数据")
