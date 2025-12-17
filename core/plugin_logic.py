@@ -91,7 +91,7 @@ class CstatsCheckPluginLogic:
                 com_dic = comp.toDict()
                 qq_id = com_dic.get("data", {}).get("qq", "")
             if comp.type == ComponentType.Plain:
-                match = re.search(r"\b(\d+)\b", comp.toString())
+                match = re.search(r"\b(\d+)\b", comp.text)
                 if match:
                     match_round = int(match.group(1))
         with open(self.user_data_file, "r", encoding="utf-8") as f:
