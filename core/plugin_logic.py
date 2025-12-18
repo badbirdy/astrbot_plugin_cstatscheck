@@ -97,6 +97,8 @@ class CstatsCheckPluginLogic:
         with open(self.user_data_file, "r", encoding="utf-8") as f:
             user_data = json.load(f)
             logger.info(f"当前存入的用户数据为：{user_data}")
+            logger.info(f"当前查询的用户qq_id为：{qq_id}")
+            logger.info(f"当前表达式的值为：{qq_id not in user_data}")
         if qq_id not in user_data:
             error_msg = f"用户 {username} 未添加数据，请先添加游戏ID"
         else:
