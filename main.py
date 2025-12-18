@@ -10,7 +10,7 @@ from .core.plugin_logic import CstatsCheckPluginLogic
 from astrbot.core.message.components import ComponentType
 
 
-@register("cstatcheck", "badbirdy", "一个简单的 cs 战绩(5e平台)查询插件", "1.0.0")
+@register("cstatcheck", "badbirdy", "一个简单的 cs 战绩(5e平台)查询插件", "1.1.0")
 class Cstatscheck(Star):
     def __init__(self, context: Context):
         super().__init__(context)
