@@ -10,7 +10,7 @@ from .core.plugin_logic import CstatsCheckPluginLogic
 from astrbot.core.message.components import ComponentType
 
 
-@register("cstatcheck", "badbirdy", "一个简单的 cs 战绩(5e平台)查询插件", "1.2.0")
+@register("cstatcheck", "badbirdy", "一个简单的 cs 战绩(5e平台)查询插件", "1.2.1")
 class Cstatscheck(Star):
     def __init__(self, context: Context):
         super().__init__(context)
@@ -178,7 +178,7 @@ class Cstatscheck(Star):
 命令: {prefix}command [@群成员] [比赛场次]
 参数:
   command - 必选命令，有 match，战绩，查询战绩
-  @群成员 - 可选参数，可以艾特某个已绑定的群成员来查询他的战绩，无此参数则查询自己战绩
+  @群成员 - 可选参数，可以艾特某个已绑定的群成员来查询他的战绩，无此参数则查询自己战绩；若艾特的是bot，则按发送者本人查询
   比赛场次 - 可选参数，查的是倒数第几把，无此参数默认查询最近一把
 示例: {prefix}match @某某 2
       {prefix}match @某某

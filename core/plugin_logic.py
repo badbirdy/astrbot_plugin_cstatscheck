@@ -76,7 +76,9 @@ class CstatsCheckPluginLogic:
             int: 查询比赛场次
         """
         message_str = event.message_str
-        qq_id = event.get_sender_id()
+        sender_id = event.get_sender_id()
+        qq_id = sender_id
+        self_id = str(event.get_self_id())
         username = event.get_sender_name()
         domain = None
         playername = None
@@ -84,16 +86,31 @@ class CstatsCheckPluginLogic:
         error_msg = None
 
         match_round = 1
+        mentioned_qq_id = ""
+        mentioned_bot = False
 
         msg_chain = event.get_messages()
         for comp in msg_chain:
             if comp.type == ComponentType.At:
                 com_dic = comp.toDict()
-                qq_id = com_dic.get("data", {}).get("qq", "")
+                at_data = com_dic.get("data", {})
+                current_qq_id = str(at_data.get("qq") or at_data.get("id") or "")
+                if not current_qq_id:
+                    continue
+                if current_qq_id == self_id:
+                    mentioned_bot = True
+                    continue
+                if not mentioned_qq_id:
+                    mentioned_qq_id = current_qq_id
             if comp.type == ComponentType.Plain:
                 match = re.search(r"\b(\d+)\b", comp.text)
                 if match:
                     match_round = int(match.group(1))
+
+        if mentioned_bot:
+            qq_id = sender_id
+        elif mentioned_qq_id:
+            qq_id = mentioned_qq_id
         with open(self.user_data_file, "r", encoding="utf-8") as f:
             user_data = json.load(f)
         if qq_id not in user_data:
