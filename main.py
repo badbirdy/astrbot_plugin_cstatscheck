@@ -3,14 +3,14 @@ import aiohttp
 from astrbot.api.event import filter, AstrMessageEvent
 from astrbot.api.star import Context, Star, register, StarTools
 from astrbot.api import logger
-from astrbot.api.message_components import Plain
+from astrbot.api.message_components import At, Plain
 
 from .core.plugin_logic import CstatsCheckPluginLogic
 
 from astrbot.core.message.components import ComponentType
 
 
-@register("cstatcheck", "badbirdy", "一个简单的 cs 战绩(5e平台)查询插件", "1.0.0")
+@register("cstatcheck", "badbirdy", "一个简单的 cs 战绩(5e平台)查询插件", "1.2.0")
 class Cstatscheck(Star):
     def __init__(self, context: Context):
         super().__init__(context)
@@ -123,20 +123,44 @@ class Cstatscheck(Star):
         if match_data.error_msg:
             logger.error(f"{match_data.error_msg}")
             return
+        llm_input_text = await self.plugin_logic.build_llm_evaluation_input(
+            match_data,
+            request_data.player_name,
+            stats_text,
+        )
         rsp_text = await self.plugin_logic.call_llm_to_generate_evaluation(
-            event, self.context, stats_text
+            event, self.context, llm_input_text
         )
         send_text = f"{stats_text}\n{rsp_text}"
-        yield event.chain_result([Plain(send_text)])
 
-    @filter.command("调试")
-    @filter.permission_type(filter.PermissionType.ADMIN)
-    async def testdebug(self, event: AstrMessageEvent):
-        msg_chain = event.get_messages()
-        for comp in msg_chain:
-            if comp.type == ComponentType.At:
-                com_dic = comp.toDict()
-                print(com_dic)
+        premade_summary = await self.plugin_logic.get_premade_summary(
+            match_stats_json,
+            request_data.player_name,
+        )
+        teammate_names = premade_summary.get("teammate_names", [])
+        target_is_worst = premade_summary.get("target_is_worst", False)
+        worst_player_qq = premade_summary.get("worst_player_qq")
+        worst_player_name = premade_summary.get("worst_player_name", "")
+
+        if teammate_names:
+            teammate_text = " ".join(teammate_names)
+            prefix_text = f"\n本局你和 {teammate_text} 一起组排，最菜的是 "
+            if target_is_worst:
+                send_text += f"{prefix_text}你自己！"
+                yield event.chain_result([Plain(send_text)])
+                return
+
+            if worst_player_qq:
+                yield event.chain_result(
+                    [
+                        Plain(send_text + prefix_text + f"{worst_player_name}"),
+                        At(qq=worst_player_qq),
+                        Plain("！"),
+                    ]
+                )
+                return
+
+        yield event.chain_result([Plain(send_text)])
 
     @filter.command("cs_help")
     async def cs_help(self, event: AstrMessageEvent):

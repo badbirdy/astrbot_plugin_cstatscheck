@@ -150,7 +150,10 @@ class CstatsCheckPluginLogic:
                 system_prompt=_LLM_SYSTEM_PROMPT,
             )
             logger.info(llm_resp)
-            return llm_resp.completion_text
+            completion_text = llm_resp.completion_text
+            completion_text = completion_text.replace("评价为：", "评价为")
+            completion_text = completion_text.replace("评价为:", "评价为")
+            return completion_text
         return None
 
     @retry(stop=stop_after_attempt(3), wait=wait_fixed(1))  # 重试3次，每次间隔2秒
@@ -182,9 +185,7 @@ class CstatsCheckPluginLogic:
                 resp.raise_for_status()
             except Exception as e:
                 logger.error(f"获取domain失败：HTTP {resp.status}，错误：{e}")
-                request_data.error_msg = (
-                    f"绑定用户失败，请检查网络后重试"
-                )
+                request_data.error_msg = f"绑定用户失败，请检查网络后重试"
                 return
             data = await resp.json()
 
@@ -257,9 +258,7 @@ class CstatsCheckPluginLogic:
                 resp.raise_for_status()
             except Exception as e:
                 logger.error(f"获取match_id失败：HTTP {resp.status}，错误：{e}")
-                request_data.error_msg = (
-                    f"查询比赛数据失败，请检查网络后重试"
-                )
+                request_data.error_msg = f"查询比赛数据失败，请检查网络后重试"
                 return
             data = await resp.json()
             match_list = data.get("data", {}).get("match_data", [])
@@ -304,7 +303,9 @@ class CstatsCheckPluginLogic:
             data = await resp.json()
             data = data.get("data", {})
             if not data:
-                request_data.error_msg = f"获取比赛的详细数据失败 (match_id={match_id}) "
+                request_data.error_msg = (
+                    f"获取比赛的详细数据失败 (match_id={match_id}) "
+                )
             return data
 
     async def process_json(
@@ -326,36 +327,157 @@ class CstatsCheckPluginLogic:
         mvp_uid = basic_info.get("mvp_uid", "")
         group_1 = json_data.get("group_1", [])
         group_2 = json_data.get("group_2", [])
-        players_stats = group_1 + group_2
-        players_to_find = player_send
+        players_to_find = player_send or ""
         match_data = MatchData(
             match_round=match_round,
             map=match_map,
             start_time=start_time,
             end_time=end_time,
             player_stats={},
+            teammate_players=[],
+            opponent_players=[],
             mvp_uid=mvp_uid,
             error_msg=error_msg,
         )
-        for player_stats in players_stats:
-            if (
-                player_stats.get("user_info", {}).get("user_data", {}).get("username", "")
-                in players_to_find
-            ):
-                player_to_find = (
-                    player_stats.get("user_info", {})
-                    .get("user_data", {})
-                    .get("username", "")
-                )
+
+        target_group, opponent_group = self._resolve_groups_by_player_name(
+            group_1,
+            group_2,
+            players_to_find,
+        )
+
+        if target_group is None or opponent_group is None:
+            match_data.error_msg = f"未在比赛数据中找到玩家 {players_to_find}"
+            return match_data
+
+        for player_stats in target_group:
+            player_to_find = (
+                player_stats.get("user_info", {})
+                .get("user_data", {})
+                .get("username", "")
+            )
+            if player_to_find == players_to_find:
                 player_data = self._extract_player_data(player_stats, player_to_find)
                 match_data.player_stats[player_data.playername] = player_data
+                break
+
+        if players_to_find not in match_data.player_stats:
+            match_data.error_msg = f"未在比赛数据中找到玩家 {players_to_find}"
+            return match_data
+
+        for player_stats in target_group:
+            player_name = (
+                player_stats.get("user_info", {})
+                .get("user_data", {})
+                .get("username", "")
+            )
+            if player_name == players_to_find:
+                continue
+            match_data.teammate_players.append(
+                self._extract_player_data(player_stats, player_name)
+            )
+
+        for player_stats in opponent_group:
+            player_name = (
+                player_stats.get("user_info", {})
+                .get("user_data", {})
+                .get("username", "")
+            )
+            match_data.opponent_players.append(
+                self._extract_player_data(player_stats, player_name)
+            )
+
         return match_data
+
+    async def get_premade_summary(
+        self,
+        json_data,
+        player_send: Union[str, None],
+    ) -> dict:
+        default_result = {
+            "teammate_names": [],
+            "worst_player_qq": None,
+            "worst_player_name": "",
+            "target_is_worst": False,
+        }
+
+        if not self.user_data_file.exists():
+            return default_result
+
+        with open(self.user_data_file, "r", encoding="utf-8") as f:
+            user_data = json.load(f)
+
+        uuid_to_bound_player = {}
+        for qq_id, player_info in user_data.items():
+            player_uuid = player_info.get("uuid", "")
+            if player_uuid:
+                uuid_to_bound_player[player_uuid] = {
+                    "qq_id": qq_id,
+                    "name": player_info.get("name", ""),
+                }
+
+        if not uuid_to_bound_player:
+            return default_result
+
+        target_name = player_send or ""
+        group_1 = json_data.get("group_1", [])
+        group_2 = json_data.get("group_2", [])
+        target_group, _ = self._resolve_groups_by_player_name(
+            group_1, group_2, target_name
+        )
+        if target_group is None:
+            return default_result
+
+        bound_team_players = []
+        for player_raw in target_group:
+            player_name = (
+                player_raw.get("user_info", {}).get("user_data", {}).get("username", "")
+            )
+            player_uuid = (
+                player_raw.get("user_info", {}).get("user_data", {}).get("uuid", "")
+            )
+            if not player_uuid or player_uuid not in uuid_to_bound_player:
+                continue
+
+            bound_info = uuid_to_bound_player[player_uuid]
+            bound_team_players.append(
+                {
+                    "name": player_name,
+                    "qq_id": bound_info.get("qq_id", ""),
+                    "is_target": player_name == target_name,
+                    "stats": self._extract_player_data(player_raw, player_name),
+                }
+            )
+
+        teammate_names = [
+            player["name"] for player in bound_team_players if not player["is_target"]
+        ]
+
+        if not teammate_names:
+            return default_result
+
+        worst_player = min(
+            bound_team_players,
+            key=lambda player: self._worst_player_key(player["stats"]),
+        )
+
+        target_is_worst = bool(worst_player["is_target"])
+        worst_player_qq = None if target_is_worst else worst_player["qq_id"]
+        worst_player_name = worst_player["name"]
+
+        return {
+            "teammate_names": teammate_names,
+            "worst_player_qq": worst_player_qq,
+            "worst_player_name": worst_player_name,
+            "target_is_worst": target_is_worst,
+        }
 
     async def handle_to_llm_text(
         self, match_data: MatchData, player_send: Union[str, None]
     ) -> str:
         "生成llm将要进行评价的战绩text"
-        player_stats: PlayerStats = match_data.player_stats.get(f"{player_send}", {})
+        player_key = player_send or ""
+        player_stats = match_data.player_stats.get(player_key)
         text = ""
         if player_stats:
             if player_stats.win == 1:
@@ -365,9 +487,74 @@ class CstatsCheckPluginLogic:
                 match_result = "失败"
                 elo_sign = "-"
             text = f"5eplayer {player_stats.playername} 的{'上' * match_data.match_round}把比赛战绩:\n比赛时间: {match_data.start_datetime}   比赛时长: {match_data.duration}min\nMap: {match_data.map} 比赛结果: {match_result} \nElo变化: {elo_sign}{abs(player_stats.elo_change)}\nkd: {player_stats.kill}-{player_stats.death}\nrating: {player_stats.rating}\nadr: {player_stats.adr}\n爆头率: {player_stats.headshot_rate * 100:.2f}% "
+
         if not text:
             match_data.error_msg = "生成评价战绩错误"
         return text
+
+    async def build_llm_evaluation_input(
+        self,
+        match_data: MatchData,
+        player_send: Union[str, None],
+        public_text: str,
+    ) -> str:
+        player_key = player_send or ""
+        player_stats = match_data.player_stats.get(player_key)
+        if not player_stats:
+            return public_text
+
+        teammate_lines = []
+        for teammate in match_data.teammate_players:
+            teammate_lines.append(
+                f"- {teammate.playername}: rating {teammate.rating}, kd {teammate.kill}-{teammate.death}, adr {teammate.adr}"
+            )
+
+        opponent_lines = []
+        for opponent in match_data.opponent_players:
+            opponent_lines.append(
+                f"- {opponent.playername}: rating {opponent.rating}, kd {opponent.kill}-{opponent.death}, adr {opponent.adr}"
+            )
+
+        teammate_block = "\n".join(teammate_lines) if teammate_lines else "- 无"
+        opponent_block = "\n".join(opponent_lines) if opponent_lines else "- 无"
+
+        extra_context = (
+            "\n\n[仅供评价使用的对局上下文，不要原样复述]\n"
+            "你需要结合以下逐人数据判断是你在拖累大哥、还是你在燃尽带队、还是对手整体太强。\n"
+            "队友(不含本人)逐人数据:\n"
+            f"{teammate_block}\n"
+            "对手逐人数据:\n"
+            f"{opponent_block}"
+        )
+
+        return public_text + extra_context
+
+    @staticmethod
+    def _resolve_groups_by_player_name(group_1, group_2, player_name):
+        for candidate in group_1:
+            username = (
+                candidate.get("user_info", {}).get("user_data", {}).get("username", "")
+            )
+            if username == player_name:
+                return group_1, group_2
+
+        for candidate in group_2:
+            username = (
+                candidate.get("user_info", {}).get("user_data", {}).get("username", "")
+            )
+            if username == player_name:
+                return group_2, group_1
+
+        return None, None
+
+    @staticmethod
+    def _worst_player_key(player_stats: PlayerStats) -> tuple:
+        return (
+            player_stats.rating,
+            player_stats.adr,
+            player_stats.kill - player_stats.death,
+            player_stats.kill,
+        )
 
     @staticmethod
     def _extract_player_data(json_data, player) -> PlayerStats:

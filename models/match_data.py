@@ -1,29 +1,33 @@
 from dataclasses import dataclass
-from typing import Dict, Union
+from typing import Dict, List, Union
 
 from datetime import datetime
+
 
 @dataclass
 class PlayerStats:
     playername: str
     uuid: str
-    uid: str # match的json中才有的值
+    uid: str  # match的json中才有的值
     win: int
-    elo_change: float # 天梯分数变化
+    elo_change: float  # 天梯分数变化
     rating: float
     adr: float
     rws: float
     kill: int
     death: int
-    headshot_rate: float # 爆头率
+    headshot_rate: float  # 爆头率
+
 
 @dataclass
 class MatchData:
     match_round: int
     map: str
-    start_time: int # Unix 时间戳 timestamp
+    start_time: int  # Unix 时间戳 timestamp
     end_time: int
     player_stats: Dict[str, PlayerStats]
+    teammate_players: List[PlayerStats]
+    opponent_players: List[PlayerStats]
     mvp_uid: str
     error_msg: Union[str, None]
 
