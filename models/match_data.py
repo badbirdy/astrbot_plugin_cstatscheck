@@ -1,6 +1,4 @@
 from dataclasses import dataclass
-from typing import Dict, List, Union
-
 from datetime import datetime
 
 
@@ -25,11 +23,12 @@ class MatchData:
     map: str
     start_time: int  # Unix 时间戳 timestamp
     end_time: int
-    player_stats: Dict[str, PlayerStats]
-    teammate_players: List[PlayerStats]
-    opponent_players: List[PlayerStats]
+    player_stats: dict[str, PlayerStats]
+    teammate_players: list[PlayerStats]
+    opponent_players: list[PlayerStats]
     mvp_uid: str
-    error_msg: Union[str, None]
+    error_msg: str | None = None
+    match_type: str = ""
 
     @property
     def start_datetime(self):
