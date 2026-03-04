@@ -29,7 +29,7 @@ PLATFORM_ALIASES = {
 }
 
 
-class CstatsCheckPluginLogic:
+class CsstatsPluginLogic:
     def __init__(self, session, data_dir, prompt: str):
         self.data_dir = data_dir
         self.user_data_file = self.data_dir / "user_data.json"

@@ -5,11 +5,11 @@ from astrbot.api.event import AstrMessageEvent, filter
 from astrbot.api.message_components import At, Plain, Reply
 from astrbot.api.star import Context, Star, StarTools, register
 
-from .core.plugin_logic import CstatsCheckPluginLogic
+from .core.plugin_logic import CsstatsPluginLogic
 
 
-@register("cstatcheck", "badbirdy", "全平台 cs 战绩查询插件", "2.0.0")
-class Cstatscheck(Star):
+@register("csstat", "bdbd2yy", "全平台 cs 战绩查询插件", "2.0.0")
+class Csstats(Star):
     def __init__(self, context: Context):
         super().__init__(context)
         self.data_dir = StarTools.get_data_dir()
@@ -21,7 +21,7 @@ class Cstatscheck(Star):
         self.data_dir.mkdir(exist_ok=True)
         self._session = aiohttp.ClientSession()
         # 在 session 创建后实例化 plugin_logic
-        self.plugin_logic = CstatsCheckPluginLogic(
+        self.plugin_logic = CsstatsPluginLogic(
             self._session, self.data_dir, prompt=""
         )
         await self.plugin_logic.initialize_storage()
@@ -175,13 +175,13 @@ class Cstatscheck(Star):
         prefix = "/"
         help_msg = f"""cstatcheck插件使用帮助：
 1. 账号绑定
-命令: {prefix}command [platform] [player_name]
+命令: {prefix}command [platform] [name]
 参数:
     commmand - 必选命令，有 bind，绑定，绑定用户，添加，添加用户
     platform - 可选参数，支持 5e/pw，不填默认5e
-    player_name - 必选参数，您的平台账号名
-示例: {prefix}bind 5e ExamplePlayer
-      {prefix}bind pw ExamplePlayer
+    name - 必选参数，pw平台为完美app用户名，不是完美游戏名；5e平台是5e游戏名称
+示例: {prefix}bind 5e PlayerName
+      {prefix}bind pw UserName
 
 2. 战绩查询
 命令: {prefix}command [platform] [@群成员] [比赛场次]
