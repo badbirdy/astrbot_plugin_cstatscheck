@@ -34,7 +34,12 @@ class Csstats(Star):
 
     @filter.command("bind", alias={"添加", "绑定", "添加用户", "绑定用户"})
     async def add_player_data(self, event: AstrMessageEvent):
-        """响应用户添加玩家请求，并进行将玩家数据进行存储"""
+        """
+        响应用户添加玩家请求，并进行将玩家数据进行存储
+        /bind [platform] [name]
+        支持平台参数，5e 或 pw，其中5e平台是游戏名称，完美平台是手机完美app的用户名
+        示例：/bind 5e PlayerName；/bind pw Username
+        """
         if self._session is None:
             yield event.plain_result("插件会话尚未初始化，请稍后再试")
             return
@@ -75,7 +80,11 @@ class Csstats(Star):
 
     @filter.command("match", alias={"战绩", "查询战绩"})
     async def fetch_match_stats(self, event: AstrMessageEvent):
-        """响应用户获取战绩请求，读取存储的玩家数据并获取战绩信息"""
+        """
+        响应用户获取战绩请求，读取存储的玩家数据并获取战绩信息
+        /match [platform] [@qq名] [match_round]
+        支持平台参数：pw / 5e / mm，完美（pw）和官匹（mm）支持10把以内战绩查询，5e支持5把以内，无艾特qq名时查询自身
+        """
         if self._session is None:
             yield self._quoted_chain_result(
                 event,
